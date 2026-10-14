@@ -6,13 +6,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemInfo: () => ipcRenderer.invoke('system:get-info'),
   startBackend: () => ipcRenderer.invoke('backend:start'),
   getBackendInfo: () => ipcRenderer.invoke('backend:info'),
-  startTunnel: () => ipcRenderer.invoke('tunnel:start'),
-  getTunnelUrl: () => ipcRenderer.invoke('tunnel:get-url'),
-  onTunnelUrl: (callback) => {
-    ipcRenderer.on('tunnel:url-ready', (event, url) => callback(url));
+  broadcastLanPresence: (info) => ipcRenderer.send('lan:broadcast-presence', info),
+  scanSubnet: () => ipcRenderer.invoke('lan:scan-subnet'),
+  onLanDeviceDiscovered: (callback) => {
+    const handler = (event, dev) => callback(dev);
+    ipcRenderer.on('lan:discovered-device', handler);
+    return () => ipcRenderer.removeListener('lan:discovered-device', handler);
   },
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
-  isMaximized: () => ipcRenderer.invoke('window:is-maximized')
+  isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+  simulateInput: (inputEvent) => ipcRenderer.send('system:simulate-input', inputEvent)
 });

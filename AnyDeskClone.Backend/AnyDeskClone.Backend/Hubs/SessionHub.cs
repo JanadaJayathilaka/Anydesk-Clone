@@ -129,8 +129,25 @@ public class SessionHub : Hub
             return;
         }
 
-        // Forward signaling payload directly to the target device group
-        await Clients.Group($"device_{message.TargetDeviceId}").SendAsync("ReceiveSignal", message);
+        var payload = new
+        {
+            sessionId = message.SessionId,
+            senderDeviceId = message.SenderDeviceId,
+            targetDeviceId = message.TargetDeviceId,
+            type = message.Type,
+            payload = message.Payload
+        };
+
+        // Forward signaling payload directly to the target device's direct socket connection if known
+        var targetDevice = _sessionService.GetDevice(message.TargetDeviceId);
+        if (targetDevice != null && !string.IsNullOrEmpty(targetDevice.ConnectionId))
+        {
+            await Clients.Client(targetDevice.ConnectionId).SendAsync("ReceiveSignal", payload);
+        }
+        else
+        {
+            await Clients.Group($"device_{message.TargetDeviceId}").SendAsync("ReceiveSignal", payload);
+        }
     }
 
     public async Task SendInput(RemoteInputEvent inputEvent)

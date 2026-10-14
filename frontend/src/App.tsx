@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { OfflineBanner } from './components/OfflineBanner';
 import { ThisDeskCard } from './components/ThisDeskCard';
@@ -9,9 +9,9 @@ import { RemoteScreenViewer } from './components/RemoteScreenViewer';
 import { SettingsModal } from './components/SettingsModal';
 
 import type {
-  ChatMessage,
   ConnectionStatus,
   ElectronSource,
+  LanDiscoveredDevice,
   PeerStats,
   RecentSession,
   RemoteInputEvent,
@@ -33,16 +33,30 @@ function generateDeviceId(): string {
   return Math.floor(min + Math.random() * (max - min)).toString();
 }
 
+export const DEFAULT_SERVER_URL = 'http://18.188.166.170:5082';
+
+export function isLocalOrPrivateIp(url: string | null | undefined): boolean {
+  if (!url) return true;
+  if (url.includes('localhost') || url.includes('127.0.0.1')) return true;
+  // Match 192.168.x.x, 10.x.x.x, 172.16-31.x.x
+  if (/https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(url)) return true;
+  return false;
+}
+
 export const App: React.FC = () => {
-  // Device identity (uses sessionStorage so separate browser tabs get their own unique device IDs)
+  // Device identity (persists in localStorage so PC retains its AnyDesk ID)
   const [deviceId] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     const paramId = params.get('id');
     if (paramId && paramId.length === 9) return paramId;
 
-    const saved = sessionStorage.getItem(STORAGE_KEY_DEVICE_ID);
-    if (saved && saved.length === 9) return saved;
+    const saved = localStorage.getItem(STORAGE_KEY_DEVICE_ID) || sessionStorage.getItem(STORAGE_KEY_DEVICE_ID);
+    if (saved && saved.length === 9) {
+      localStorage.setItem(STORAGE_KEY_DEVICE_ID, saved);
+      return saved;
+    }
     const newId = generateDeviceId();
+    localStorage.setItem(STORAGE_KEY_DEVICE_ID, newId);
     sessionStorage.setItem(STORAGE_KEY_DEVICE_ID, newId);
     return newId;
   });
@@ -52,15 +66,22 @@ export const App: React.FC = () => {
   });
 
   const [serverUrl, setServerUrl] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEY_SERVER_URL) || 'http://localhost:5082';
+    const saved = localStorage.getItem(STORAGE_KEY_SERVER_URL);
+    // If empty or previously set to a local/LAN/private IP, reset immediately to the AWS server!
+    if (!saved || isLocalOrPrivateIp(saved)) {
+      localStorage.setItem(STORAGE_KEY_SERVER_URL, DEFAULT_SERVER_URL);
+      return DEFAULT_SERVER_URL;
+    }
+    return saved;
   });
 
   // State & Status
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [statusMessage, setStatusMessage] = useState<string>('Starting backend service...');
+  const [connectionDetailStatus, setConnectionDetailStatus] = useState<string>('');
   const [isRetryingSignalR, setIsRetryingSignalR] = useState(false);
   const [localIp, setLocalIp] = useState<string>('');
-  const [publicTunnelUrl, setPublicTunnelUrl] = useState<string | null>(null);
+  const [lanDevices, setLanDevices] = useState<LanDiscoveredDevice[]>([]);
 
   // Permissions & Screen Sources
   const [permissions, setPermissions] = useState<SessionPermissions>({
@@ -96,7 +117,6 @@ export const App: React.FC = () => {
     bytesReceived: 0,
     packetsLost: 0
   });
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Incoming request modal
   const [incomingRequest, setIncomingRequest] = useState<{
@@ -108,8 +128,10 @@ export const App: React.FC = () => {
   // Settings modal
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Initialize Electron sources & system info
+  // Initialize Electron sources & system info & LAN discovery
   useEffect(() => {
+    let unsubscribeLan: (() => void) | undefined;
+
     if (window.electronAPI?.isElectron) {
       window.electronAPI.getSystemInfo().then((info) => {
         if (info.hostname && !localStorage.getItem(STORAGE_KEY_DEVICE_NAME)) {
@@ -118,14 +140,33 @@ export const App: React.FC = () => {
         if (info.localIp) {
           setLocalIp(info.localIp);
         }
-        if (info.publicTunnelUrl) {
-          setPublicTunnelUrl(info.publicTunnelUrl);
-        }
       });
 
-      if (window.electronAPI.onTunnelUrl) {
-        window.electronAPI.onTunnelUrl((url: string) => {
-          setPublicTunnelUrl(url);
+      if (window.electronAPI.broadcastLanPresence) {
+        window.electronAPI.broadcastLanPresence({ deviceId, deviceName });
+      }
+
+      if (window.electronAPI.onLanDeviceDiscovered) {
+        unsubscribeLan = window.electronAPI.onLanDeviceDiscovered((dev: LanDiscoveredDevice) => {
+          setLanDevices((prev) => {
+            const filtered = prev.filter((d) => d.deviceId !== dev.deviceId);
+            return [...filtered, dev];
+          });
+        });
+      }
+
+      if (window.electronAPI.scanSubnet) {
+        window.electronAPI.scanSubnet().then((found) => {
+          if (found && found.length > 0) {
+            setLanDevices((prev) => {
+              let merged = [...prev];
+              for (const dev of found) {
+                merged = merged.filter((d) => d.deviceId !== dev.deviceId);
+                merged.push(dev);
+              }
+              return merged;
+            });
+          }
         });
       }
 
@@ -136,40 +177,96 @@ export const App: React.FC = () => {
         }
       });
     }
-  }, []);
+
+    // Prune stale LAN devices every 5s (offline after 25s)
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      setLanDevices((prev) => prev.filter((d) => now - d.lastSeen < 25000));
+    }, 5000);
+
+    return () => {
+      unsubscribeLan?.();
+      clearInterval(cleanupInterval);
+    };
+  }, [deviceId, deviceName]);
+
+  // Check if the configured server is a remote/cloud server (not local)
+  const isRemoteServer = !isLocalOrPrivateIp(serverUrl);
+
+  // Keep stable refs to avoid tearing down the SignalR & WebRTC connection when state changes
+  const isRemoteServerRef = useRef(isRemoteServer);
+  isRemoteServerRef.current = isRemoteServer;
+
+  const serverUrlRef = useRef(serverUrl);
+  serverUrlRef.current = serverUrl;
+
+  const deviceIdRef = useRef(deviceId);
+  deviceIdRef.current = deviceId;
+
+  const deviceNameRef = useRef(deviceName);
+  deviceNameRef.current = deviceName;
+
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
+
+  const isHostRef = useRef(isHost);
+  isHostRef.current = isHost;
+
+  const remoteIdRef = useRef(remoteId);
+  remoteIdRef.current = remoteId;
 
   // Initialize SignalR & WebRTC listeners with auto-retry while backend boots
-  const connectSignalR = useCallback(async (maxAttempts = 15, delayMs = 1000) => {
+  const connectSignalR = useCallback(async (maxAttempts?: number, delayMs = 1000) => {
+    const isRemote = isRemoteServerRef.current;
+    const sUrl = serverUrlRef.current;
+    const devId = deviceIdRef.current;
+    const devName = deviceNameRef.current;
+
+    // For remote/cloud servers: connect quickly, no need for long retry loops
+    const attempts = maxAttempts ?? (isRemote ? 3 : 15);
     setIsRetryingSignalR(true);
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      setStatusMessage(`Starting and connecting to backend... (Attempt ${attempt}/${maxAttempts})`);
-      const ok = await signalRService.connect(serverUrl, deviceId, deviceName);
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      if (isRemote) {
+        setStatusMessage(`Connecting to AWS Cloud Backend... (Attempt ${attempt}/${attempts})`);
+      } else {
+        setStatusMessage(`Starting and connecting to backend... (Attempt ${attempt}/${attempts})`);
+      }
+      const ok = await signalRService.connect(sUrl, devId, devName);
       if (ok) {
         setConnectionStatus('ready');
         setStatusMessage('');
         setIsRetryingSignalR(false);
         return true;
       }
-      if (attempt < maxAttempts) {
+      if (attempt < attempts) {
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }
     setConnectionStatus('offline');
-    setStatusMessage('Backend service could not be reached. You can click Retry Connection.');
+    if (isRemote) {
+      setStatusMessage('AWS Cloud Backend is unreachable. Check your internet connection or verify the server is running.');
+    } else {
+      setStatusMessage('Backend service could not be reached. You can click Retry Connection.');
+    }
     setIsRetryingSignalR(false);
     return false;
-  }, [serverUrl, deviceId, deviceName]);
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
 
     const startup = async () => {
       if (window.electronAPI?.isElectron) {
-        try {
-          setStatusMessage('Starting AnyDesk backend...');
-          await window.electronAPI.startBackend();
-        } catch (e) {
-          console.warn('Electron startBackend error:', e);
+        if (!isRemoteServerRef.current) {
+          // Only start the local bundled backend when NOT using a remote cloud server
+          try {
+            setStatusMessage('Starting local AnyDesk backend...');
+            await window.electronAPI.startBackend();
+          } catch (e) {
+            console.warn('Electron startBackend error:', e);
+          }
+        } else {
+          console.log('[App] Remote AWS server configured — skipping local backend launch.');
         }
       }
 
@@ -185,7 +282,7 @@ export const App: React.FC = () => {
       if (connected) {
         setConnectionStatus((prev) => (prev === 'offline' || prev === 'connecting' ? 'ready' : prev));
       } else {
-        if (!activeSessionId) {
+        if (!activeSessionIdRef.current) {
           setConnectionStatus('offline');
         }
       }
@@ -206,9 +303,9 @@ export const App: React.FC = () => {
       setIsHost(false);
 
       // Start controller WebRTC session
-      const partnerId = data.hostDeviceId || remoteId;
+      const partnerId = data.hostDeviceId || remoteIdRef.current;
       setActivePeerId(partnerId);
-      await webRtcService.startControllerSession(data.sessionId, deviceId, partnerId);
+      await webRtcService.startControllerSession(data.sessionId, deviceIdRef.current, partnerId);
 
       // Save to recent sessions
       saveRecentSession(partnerId);
@@ -232,9 +329,9 @@ export const App: React.FC = () => {
     };
 
     signalRService.onReceiveInput = (input: RemoteInputEvent) => {
-      // Local input execution if host
-      if (isHost) {
-        console.log('Host received input event:', input.type);
+      // Local hardware input execution if host
+      if (isHostRef.current && window.electronAPI?.simulateInput) {
+        window.electronAPI.simulateInput(input);
       }
     };
 
@@ -245,12 +342,38 @@ export const App: React.FC = () => {
     };
 
     webRtcService.onRemoteInputReceived = (input) => {
-      // Forward to backend input simulation
-      signalRService.sendInput(input);
+      // Direct peer-to-peer hardware input execution on host
+      if (window.electronAPI?.simulateInput) {
+        window.electronAPI.simulateInput(input);
+      }
     };
 
-    webRtcService.onChatMessageReceived = (msg) => {
-      setChatMessages((prev) => [...prev, msg]);
+    webRtcService.onSwitchSidesRequested = async () => {
+      if (isHostRef.current) {
+        setIsHost(false);
+        setRemoteStream(null);
+        setConnectionDetailStatus('Partner switched sides and is now presenting desktop...');
+      } else {
+        try {
+          const stream = await webRtcService.acquireScreenStream();
+          setIsHost(true);
+          setRemoteStream(stream);
+          if (activeSessionIdRef.current) {
+            await webRtcService.startHostSessionWithStream(
+              activeSessionIdRef.current,
+              deviceIdRef.current,
+              remoteIdRef.current,
+              stream
+            );
+          }
+        } catch (e) {
+          console.warn('Error accepting switch sides:', e);
+        }
+      }
+    };
+
+    webRtcService.onDetailedStatus = (status) => {
+      setConnectionDetailStatus(status);
     };
 
     webRtcService.onStatsUpdate = (stats) => {
@@ -258,10 +381,11 @@ export const App: React.FC = () => {
     };
 
     return () => {
+      isCancelled = true;
       signalRService.disconnect();
       webRtcService.cleanUp();
     };
-  }, [connectSignalR, deviceId, remoteId, activeSessionId, isHost]);
+  }, [connectSignalR]);
 
   const saveRecentSession = (targetId: string) => {
     setRecentSessions((prev) => {
@@ -305,41 +429,54 @@ export const App: React.FC = () => {
     }
   };
 
-  // Controller starts connection
-  const handleConnect = async () => {
-    if (!remoteId) {
-      setStatusMessage('Please enter a 9-digit address.');
-      return;
-    }
+  // Connect directly by selecting a LAN device
+  const handleSelectLanDevice = async (dev: LanDiscoveredDevice) => {
+    setRemoteId(dev.deviceId);
+    await initiateSession(dev.deviceId);
+  };
 
-    // If connecting to own address, seamlessly run self-test session!
-    if (remoteId === deviceId) {
-      await startSelfSession();
-      return;
-    }
-
+  const initiateSession = async (targetId: string) => {
     setConnectionStatus('connecting');
-    setStatusMessage('Contacting remote desk...');
-    setActivePeerId(remoteId);
+    setStatusMessage('Contacting remote desk via signaling hub...');
+    setActivePeerId(targetId);
 
     try {
-      await signalRService.requestSession(remoteId, deviceId, deviceName);
+      await signalRService.requestSession(targetId, deviceId, deviceName);
       setConnectionStatus('waiting_approval');
       setStatusMessage('Waiting for remote partner to accept request...');
     } catch (err: any) {
-      setConnectionStatus('rejected');
       const rawMsg = err?.message || '';
+      console.warn('Session request error:', rawMsg);
+
+      setConnectionStatus('rejected');
       let cleanMsg = 'Remote desk is offline or unavailable.';
       if (rawMsg.includes('offline or not found')) {
-        cleanMsg = `Device ${remoteId} is not online on this server. To connect across the Internet, make sure both PCs have the SAME backend server URL configured in ⚙️ Settings (e.g. ${publicTunnelUrl || 'https://...trycloudflare.com'}).`;
+        cleanMsg = `Device ${targetId.replace(/(\d{3})(?=\d)/g, '$1 ')} was not found on the hub. Make sure AnyDesk is open on that computer.`;
       } else if (rawMsg.includes('not connected')) {
-        cleanMsg = 'Signaling server is disconnected. Click Retry Connection.';
+        cleanMsg = 'Signaling server is disconnected. Please check Settings.';
       }
       setStatusMessage(cleanMsg);
       setTimeout(() => {
         setConnectionStatus('ready');
       }, 7000);
     }
+  };
+
+  // Controller starts connection (9-digit address)
+  const handleConnect = async () => {
+    const rawTarget = remoteId.trim();
+    if (!rawTarget) {
+      setStatusMessage('Please enter a 9-digit address.');
+      return;
+    }
+
+    if (rawTarget === deviceId) {
+      await startSelfSession();
+      return;
+    }
+
+    const cleanId = rawTarget.replace(/\s+/g, '');
+    await initiateSession(cleanId);
   };
 
   const handleCancelConnection = () => {
@@ -397,17 +534,44 @@ export const App: React.FC = () => {
     webRtcService.cleanUp();
     setActiveSessionId(null);
     setRemoteStream(null);
-    setChatMessages([]);
     setIsHost(false);
     setActivePeerId('');
     setConnectionStatus('ready');
     setStatusMessage('');
   };
 
-  // Chat message sending
-  const handleSendChatMessage = (text: string) => {
-    const msg = webRtcService.sendChatMessage(text, deviceName);
-    setChatMessages((prev) => [...prev, msg]);
+  // Switch Screen without ending session
+  const handleSwitchScreen = async (newSourceId: string) => {
+    setSelectedSourceId(newSourceId);
+    if (isHost) {
+      await webRtcService.switchScreenSource(newSourceId);
+    } else {
+      webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
+    }
+  };
+
+  // Switch Sides without ending session
+  const handleSwitchSides = async () => {
+    if (isHost) {
+      // Host asks Controller to present
+      webRtcService.sendControlCommand({ type: 'switch-sides' });
+      setIsHost(false);
+      setRemoteStream(null);
+      setConnectionDetailStatus('Switched sides: Partner is now sharing screen...');
+    } else {
+      // Controller shares screen to Host
+      try {
+        const stream = await webRtcService.acquireScreenStream(selectedSourceId);
+        setIsHost(true);
+        setRemoteStream(stream);
+        webRtcService.sendControlCommand({ type: 'switch-sides' });
+        if (activeSessionId) {
+          await webRtcService.startHostSessionWithStream(activeSessionId, deviceId, activePeerId, stream);
+        }
+      } catch (err) {
+        console.warn('Switch sides error:', err);
+      }
+    }
   };
 
   // Input event sending
@@ -422,6 +586,31 @@ export const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY_SERVER_URL, newUrl);
     localStorage.setItem(STORAGE_KEY_DEVICE_NAME, newName);
     signalRService.connect(newUrl, deviceId, newName);
+  };
+
+  const handleManualLanScan = async () => {
+    setStatusMessage('Scanning Wi-Fi network for AnyDesk computers...');
+    if (window.electronAPI?.scanSubnet) {
+      try {
+        const found = await window.electronAPI.scanSubnet();
+        if (found && found.length > 0) {
+          setLanDevices((prev) => {
+            let merged = [...prev];
+            for (const dev of found) {
+              merged = merged.filter((d) => d.deviceId !== dev.deviceId);
+              merged.push(dev);
+            }
+            return merged;
+          });
+          setStatusMessage(`Found ${found.length} computer(s) on local network.`);
+        } else {
+          setStatusMessage('Scan complete. No other AnyDesk computers found on this subnet.');
+        }
+      } catch {
+        setStatusMessage('LAN scan completed.');
+      }
+      setTimeout(() => setStatusMessage(''), 4000);
+    }
   };
 
   return (
@@ -455,7 +644,7 @@ export const App: React.FC = () => {
               deviceId={deviceId}
               deviceName={deviceName}
               localIp={localIp}
-              publicTunnelUrl={publicTunnelUrl}
+              serverUrl={serverUrl}
               permissions={permissions}
               onUpdatePermissions={setPermissions}
               screenSources={screenSources}
@@ -476,6 +665,9 @@ export const App: React.FC = () => {
               status={connectionStatus}
               statusMessage={statusMessage}
               thisDeviceId={deviceId}
+              lanDevices={lanDevices}
+              onSelectLanDevice={handleSelectLanDevice}
+              onRefreshLan={handleManualLanScan}
             />
           </div>
 
@@ -532,8 +724,11 @@ export const App: React.FC = () => {
           sessionId={activeSessionId}
           isHost={isHost}
           stats={peerStats}
-          chatMessages={chatMessages}
-          onSendChatMessage={handleSendChatMessage}
+          connectionDetailStatus={connectionDetailStatus}
+          screenSources={screenSources}
+          selectedSourceId={selectedSourceId}
+          onSelectSourceId={handleSwitchScreen}
+          onSwitchSides={handleSwitchSides}
           onSendInputEvent={handleSendInputEvent}
           onDisconnect={() => handleEndSession(true)}
         />
@@ -557,7 +752,6 @@ export const App: React.FC = () => {
           serverUrl={serverUrl}
           deviceName={deviceName}
           localIp={localIp}
-          publicTunnelUrl={publicTunnelUrl}
           onSave={handleSaveSettings}
           onClose={() => setIsSettingsOpen(false)}
         />

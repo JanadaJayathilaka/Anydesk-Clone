@@ -48,13 +48,12 @@ public class DevicesController : ControllerBase
     [HttpGet("ice-servers")]
     public IActionResult GetIceServers()
     {
-        // Public STUN servers for WebRTC peer-to-peer NAT traversal
+        // Public STUN servers for WebRTC peer-to-peer NAT traversal & LAN connections
         var servers = new List<IceServerConfig>
         {
             new() { Urls = ["stun:stun.l.google.com:19302"] },
             new() { Urls = ["stun:stun1.l.google.com:19302"] },
-            new() { Urls = ["stun:stun2.l.google.com:19302"] },
-            new() { Urls = ["stun:stun.cloudflare.com:3478"] }
+            new() { Urls = ["stun:stun2.l.google.com:19302"] }
         };
         return Ok(servers);
     }

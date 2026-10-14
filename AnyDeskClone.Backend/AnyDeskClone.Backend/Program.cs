@@ -3,6 +3,12 @@ using AnyDeskClone.Backend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Ensure backend listens on all network adapters for LAN peer access
+if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+{
+    builder.WebHost.UseUrls("http://0.0.0.0:5082");
+}
+
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

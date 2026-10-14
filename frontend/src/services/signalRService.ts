@@ -113,6 +113,7 @@ export class SignalRService {
     });
 
     this.hubConnection.on('ReceiveSignal', (message: SignalMessage) => {
+      console.log(`[SignalR] Received signal: ${message?.type || (message as any)?.Type} from ${message?.senderDeviceId || (message as any)?.SenderDeviceId}`);
       this.onReceiveSignal?.(message);
     });
 
@@ -154,8 +155,12 @@ export class SignalRService {
   }
 
   public async sendSignal(message: SignalMessage) {
-    if (!this.hubConnection || !this.isConnected()) return;
+    if (!this.hubConnection || !this.isConnected()) {
+      console.warn('[SignalR] sendSignal skipped - socket not connected. State:', this.hubConnection?.state);
+      return;
+    }
     try {
+      console.log(`[SignalR] Invoking SendSignal (${message.type}) to ${message.targetDeviceId}`);
       await this.hubConnection.invoke('SendSignal', message);
     } catch (e) {
       console.error('Failed to send signaling message:', e);

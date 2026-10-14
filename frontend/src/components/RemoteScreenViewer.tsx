@@ -4,13 +4,14 @@ import {
   MousePointer,
   Maximize,
   Minimize,
-  MessageSquare,
   Activity,
-  Send,
-  X,
-  Keyboard
+  Keyboard,
+  Monitor,
+  Repeat,
+  Check,
+  ChevronDown
 } from 'lucide-react';
-import type { ChatMessage, PeerStats, RemoteInputEvent } from '../types';
+import type { PeerStats, RemoteInputEvent, ElectronSource } from '../types';
 
 interface RemoteScreenViewerProps {
   remoteStream: MediaStream | null;
@@ -18,8 +19,11 @@ interface RemoteScreenViewerProps {
   sessionId: string;
   isHost: boolean;
   stats: PeerStats;
-  chatMessages: ChatMessage[];
-  onSendChatMessage: (text: string) => void;
+  connectionDetailStatus?: string;
+  screenSources?: ElectronSource[];
+  selectedSourceId?: string;
+  onSelectSourceId?: (sourceId: string) => void;
+  onSwitchSides?: () => void;
   onSendInputEvent: (input: RemoteInputEvent) => void;
   onDisconnect: () => void;
 }
@@ -30,8 +34,11 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
   sessionId,
   isHost,
   stats,
-  chatMessages,
-  onSendChatMessage,
+  connectionDetailStatus,
+  screenSources = [],
+  selectedSourceId = '',
+  onSelectSourceId,
+  onSwitchSides,
   onSendInputEvent,
   onDisconnect
 }) => {
@@ -40,10 +47,10 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
 
   const [isInteractive, setIsInteractive] = useState(!isHost); // controllers have interactive mode on by default
   const [displayMode, setDisplayMode] = useState<'contain' | 'original'>('contain');
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatInputText, setChatInputText] = useState('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
+  const [showScreenMenu, setShowScreenMenu] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   // Format session timer
   useEffect(() => {
@@ -61,33 +68,91 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
 
   // Attach remote stream to video element
   useEffect(() => {
-    if (videoRef.current && remoteStream) {
-      videoRef.current.srcObject = remoteStream;
-      videoRef.current.muted = true;
-      videoRef.current.play().catch((e) => console.log('Video autoplay error:', e));
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (remoteStream) {
+      video.srcObject = remoteStream;
+      video.muted = true;
+      video.play().then(() => {
+        setIsVideoPlaying(true);
+      }).catch((e) => {
+        console.log('Video autoplay error:', e);
+        setIsVideoPlaying(true);
+      });
+
+      const tracks = remoteStream.getVideoTracks();
+      if (tracks.length > 0) {
+        if (tracks[0].readyState === 'live') {
+          setIsVideoPlaying(true);
+        }
+        tracks[0].onunmute = () => {
+          setIsVideoPlaying(true);
+          video.play().catch(() => {});
+        };
+        // Fallback: if track is live or ready, reveal video after short delay
+        const checkTimer = setTimeout(() => {
+          if (video.currentTime > 0 || video.readyState >= 1 || tracks[0].readyState === 'live') {
+            setIsVideoPlaying(true);
+          }
+        }, 300);
+        return () => clearTimeout(checkTimer);
+      }
+    } else {
+      setIsVideoPlaying(false);
     }
   }, [remoteStream]);
 
-  // Coordinate normalizer: converts mouse event on <video> to 0.0 -> 1.0
+  // Coordinate normalizer: accurately converts client mouse coordinates on <video> to normalized 0.0 -> 1.0
+  // Accounts for letterboxing / pillarboxing when aspect ratio doesn't match window
   const getNormalizedCoordinates = useCallback((e: React.MouseEvent<HTMLDivElement>): { x: number; y: number } | null => {
     const video = videoRef.current;
     if (!video) return null;
 
     const rect = video.getBoundingClientRect();
-    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+    const vw = video.videoWidth || rect.width;
+    const vh = video.videoHeight || rect.height;
+
+    if (!vw || !vh || rect.width <= 0 || rect.height <= 0) return null;
+
+    let renderWidth = rect.width;
+    let renderHeight = rect.height;
+    let offsetX = rect.left;
+    let offsetY = rect.top;
+
+    if (displayMode === 'contain') {
+      const containerRatio = rect.width / rect.height;
+      const videoRatio = vw / vh;
+      if (containerRatio > videoRatio) {
+        // Black bars on left and right (pillarboxed)
+        renderWidth = rect.height * videoRatio;
+        offsetX = rect.left + (rect.width - renderWidth) / 2;
+      } else {
+        // Black bars on top and bottom (letterboxed)
+        renderHeight = rect.width / videoRatio;
+        offsetY = rect.top + (rect.height - renderHeight) / 2;
+      }
+    }
+
+    if (
+      e.clientX < offsetX ||
+      e.clientX > offsetX + renderWidth ||
+      e.clientY < offsetY ||
+      e.clientY > offsetY + renderHeight
+    ) {
       return null;
     }
 
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    const normX = (e.clientX - offsetX) / renderWidth;
+    const normY = (e.clientY - offsetY) / renderHeight;
 
     return {
-      x: Math.max(0, Math.min(1, x)),
-      y: Math.max(0, Math.min(1, y))
+      x: Math.max(0, Math.min(1, normX)),
+      y: Math.max(0, Math.min(1, normY))
     };
-  }, []);
+  }, [displayMode]);
 
-  // Mouse handlers
+  // Mouse event handlers
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!isInteractive) return;
     const coords = getNormalizedCoordinates(e);
@@ -144,12 +209,12 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
     });
   }, [isInteractive, getNormalizedCoordinates, onSendInputEvent, sessionId]);
 
-  // Keyboard handlers
+  // Keyboard event handlers
   useEffect(() => {
     if (!isInteractive) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't capture keyboard if user is typing in chat input
+      // Don't capture keyboard if user is typing in an input
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') {
         return;
       }
@@ -211,12 +276,9 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
     setShowSpecialKeys(false);
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (chatInputText.trim()) {
-      onSendChatMessage(chatInputText.trim());
-      setChatInputText('');
-    }
+  const handleSwitchScreenChoice = (sourceId: string) => {
+    setShowScreenMenu(false);
+    onSelectSourceId?.(sourceId);
   };
 
   const formattedPeerId = remoteDeviceId.replace(/(\d{3})(?=\d)/g, '$1 ');
@@ -226,7 +288,7 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       {/* Floating AnyDesk Toolbar */}
       <div className="viewer-toolbar">
         <div className="toolbar-session-info">
-          <span>{isHost ? 'Host Session' : formattedPeerId}</span>
+          <span>{isHost ? `Host Mode (Partner: ${formattedPeerId})` : formattedPeerId}</span>
           <span style={{ color: 'var(--color-blue)', fontSize: '11px', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
             {formatTimer(elapsedSeconds)}
           </span>
@@ -246,17 +308,113 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         </div>
 
         <div className="toolbar-actions">
+          {/* Input Control Toggle */}
           {!isHost && (
             <button
               className={`btn-toolbar ${isInteractive ? 'active' : ''}`}
               onClick={() => setIsInteractive(!isInteractive)}
-              title={isInteractive ? 'Input Control Active' : 'View Only Mode'}
+              title={isInteractive ? 'Input Control Active (Clicking & Typing on Remote PC)' : 'View Only Mode'}
             >
               <MousePointer size={14} />
               <span>{isInteractive ? 'Control' : 'View Only'}</span>
             </button>
           )}
 
+          {/* Screen / Monitor Switcher on the fly */}
+          <div style={{ position: 'relative' }}>
+            <button
+              className={`btn-toolbar ${showScreenMenu ? 'active' : ''}`}
+              onClick={() => setShowScreenMenu(!showScreenMenu)}
+              title="Switch Screen / Monitor without ending session"
+            >
+              <Monitor size={14} />
+              <span>Screens</span>
+              <ChevronDown size={12} style={{ opacity: 0.7 }} />
+            </button>
+
+            {showScreenMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  marginTop: '8px',
+                  left: 0,
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '8px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+                  padding: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                  zIndex: 300,
+                  minWidth: '220px'
+                }}
+              >
+                <div style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Select Display / Window
+                </div>
+
+                {screenSources.length > 0 ? (
+                  screenSources.map((source) => {
+                    const isSelected = selectedSourceId === source.id;
+                    return (
+                      <button
+                        key={source.id}
+                        className={`btn-toolbar ${isSelected ? 'active' : ''}`}
+                        style={{
+                          width: '100%',
+                          justifyContent: 'flex-start',
+                          padding: '8px 10px',
+                          gap: '8px'
+                        }}
+                        onClick={() => handleSwitchScreenChoice(source.id)}
+                      >
+                        <Monitor size={14} color={isSelected ? 'var(--primary-red)' : 'var(--text-muted)'} />
+                        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {source.name}
+                        </span>
+                        {isSelected && <Check size={13} color="var(--primary-red)" />}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <>
+                    <button
+                      className="btn-toolbar"
+                      style={{ width: '100%', justifyContent: 'flex-start' }}
+                      onClick={() => handleSwitchScreenChoice('screen:0:0')}
+                    >
+                      <Monitor size={14} />
+                      <span>Primary Display 1</span>
+                    </button>
+                    <button
+                      className="btn-toolbar"
+                      style={{ width: '100%', justifyContent: 'flex-start' }}
+                      onClick={() => handleSwitchScreenChoice('screen:1:0')}
+                    >
+                      <Monitor size={14} />
+                      <span>Secondary Display 2</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Switch Sides (Swap Roles) */}
+          {onSwitchSides && (
+            <button
+              className="btn-toolbar"
+              onClick={onSwitchSides}
+              title={isHost ? 'Switch Sides: View Controller desktop instead' : 'Switch Sides: Share your desktop with partner'}
+            >
+              <Repeat size={14} />
+              <span>Switch Sides</span>
+            </button>
+          )}
+
+          {/* Scaling Toggle */}
           <button
             className="btn-toolbar"
             onClick={() => setDisplayMode(displayMode === 'contain' ? 'original' : 'contain')}
@@ -266,11 +424,12 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             <span>{displayMode === 'contain' ? 'Fit' : '100%'}</span>
           </button>
 
+          {/* Special System Keys */}
           <div style={{ position: 'relative' }}>
             <button
               className={`btn-toolbar ${showSpecialKeys ? 'active' : ''}`}
               onClick={() => setShowSpecialKeys(!showSpecialKeys)}
-              title="Send Special System Keys"
+              title="Send Special System Keys to Remote Desktop"
             >
               <Keyboard size={14} />
               <span>Keys</span>
@@ -327,15 +486,7 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             )}
           </div>
 
-          <button
-            className={`btn-toolbar ${isChatOpen ? 'active' : ''}`}
-            onClick={() => setIsChatOpen(!isChatOpen)}
-            title="Toggle In-Session Chat"
-          >
-            <MessageSquare size={14} />
-            <span>Chat</span>
-          </button>
-
+          {/* Disconnect / End Session */}
           <button
             className="btn-disconnect-viewer"
             onClick={onDisconnect}
@@ -355,80 +506,55 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
         onContextMenu={(e) => isInteractive && e.preventDefault()}
+        style={{ position: 'relative', width: '100%', height: '100%' }}
       >
-        {!remoteStream ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', color: '#fff', padding: '32px' }}>
-            <div className="status-dot connecting" style={{ width: '20px', height: '20px' }} />
-            <div style={{ fontSize: '20px', fontWeight: 600 }}>Connecting to Remote Desktop Feed...</div>
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-              Establishing peer connection with {formattedPeerId}. If prompt appears, select screen to share.
+        {(!remoteStream || !isVideoPlaying) && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '16px',
+            color: '#fff',
+            padding: '32px',
+            background: 'var(--bg-dark)',
+            zIndex: 10
+          }}>
+            <div className="status-dot connecting" style={{ width: '22px', height: '22px' }} />
+            <div style={{ fontSize: '20px', fontWeight: 600 }}>
+              {isHost ? 'Sharing Your Desktop...' : 'Connecting to Remote Desktop Feed...'}
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '480px' }}>
+              {isHost
+                ? `Your screen is being broadcasted to ${formattedPeerId}`
+                : (connectionDetailStatus || `Establishing direct peer-to-peer connection with ${formattedPeerId}. Receiving video stream...`)}
             </div>
           </div>
-        ) : (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="remote-video-element"
-            style={{
-              objectFit: displayMode === 'contain' ? 'contain' : 'fill'
-            }}
-          />
         )}
+
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onPlaying={() => setIsVideoPlaying(true)}
+          onLoadedData={() => setIsVideoPlaying(true)}
+          onCanPlay={() => setIsVideoPlaying(true)}
+          onLoadedMetadata={() => {
+            setIsVideoPlaying(true);
+            videoRef.current?.play().catch(() => {});
+          }}
+          className="remote-video-element"
+          style={{
+            objectFit: displayMode === 'contain' ? 'contain' : 'fill',
+            width: '100%',
+            height: '100%',
+            display: 'block'
+          }}
+        />
       </div>
-
-      {/* In-Session Chat Drawer */}
-      {isChatOpen && (
-        <aside className="chat-drawer">
-          <div className="chat-drawer-header">
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <MessageSquare size={16} color="var(--primary-red)" />
-              <span>Session Chat</span>
-            </span>
-            <button
-              className="btn-icon-titlebar"
-              onClick={() => setIsChatOpen(false)}
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          <div className="chat-messages-list">
-            {chatMessages.length === 0 ? (
-              <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', marginTop: '20px' }}>
-                No messages yet. Send a message to the remote peer.
-              </div>
-            ) : (
-              chatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`chat-bubble ${msg.isSelf ? 'self' : 'peer'}`}
-                >
-                  <div style={{ fontSize: '11px', fontWeight: 600, opacity: 0.85, marginBottom: '2px' }}>
-                    {msg.sender}
-                  </div>
-                  <div>{msg.text}</div>
-                  <div className="chat-time">{msg.timestamp}</div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <form onSubmit={handleSendChat} className="chat-input-row">
-            <input
-              type="text"
-              placeholder="Type message..."
-              value={chatInputText}
-              onChange={(e) => setChatInputText(e.target.value)}
-              className="chat-input"
-            />
-            <button type="submit" className="btn-send-chat" disabled={!chatInputText.trim()}>
-              <Send size={15} />
-            </button>
-          </form>
-        </aside>
-      )}
     </div>
   );
 };

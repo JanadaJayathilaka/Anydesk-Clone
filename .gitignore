@@ -138,8 +138,4 @@ Icon?
 .directory
 .Trash-*
 
-# ==============================================================================
-# Tools & Large Binaries
-# ==============================================================================
-# Uncomment below if you want to exclude downloaded tunnel tools or binaries from git
-# tools/*.exe
+

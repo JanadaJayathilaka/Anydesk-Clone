@@ -6,7 +6,7 @@ interface ThisDeskCardProps {
   deviceId: string;
   deviceName: string;
   localIp?: string;
-  publicTunnelUrl?: string | null;
+  serverUrl: string;
   permissions: SessionPermissions;
   onUpdatePermissions: (newPerms: SessionPermissions) => void;
   screenSources: ElectronSource[];
@@ -18,7 +18,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
   deviceId,
   deviceName,
   localIp,
-  publicTunnelUrl,
+  serverUrl,
   permissions,
   onUpdatePermissions,
   screenSources,
@@ -26,8 +26,6 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
   onSelectSourceId
 }) => {
   const [copied, setCopied] = useState(false);
-  const [copiedIp, setCopiedIp] = useState(false);
-  const [copiedTunnel, setCopiedTunnel] = useState(false);
 
   // Format device ID into "XXX XXX XXX" pattern
   const formattedId = deviceId
@@ -40,26 +38,14 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleCopyIp = () => {
-    if (!localIp) return;
-    navigator.clipboard.writeText(`http://${localIp}:5082`);
-    setCopiedIp(true);
-    setTimeout(() => setCopiedIp(false), 2000);
-  };
-
-  const handleCopyTunnel = () => {
-    if (!publicTunnelUrl) return;
-    navigator.clipboard.writeText(publicTunnelUrl);
-    setCopiedTunnel(true);
-    setTimeout(() => setCopiedTunnel(false), 2000);
-  };
-
   const togglePermission = (key: keyof SessionPermissions) => {
     onUpdatePermissions({
       ...permissions,
       [key]: !permissions[key]
     });
   };
+
+  const isAwsHub = serverUrl.includes('18.188.166.170');
 
   return (
     <div className="card this-desk-card">
@@ -92,85 +78,46 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
         </button>
       </div>
 
-      {publicTunnelUrl ? (
-        <div
-          style={{
-            marginTop: '10px',
-            marginBottom: '14px',
-            padding: '10px 14px',
-            background: 'rgba(16, 185, 129, 0.08)',
-            border: '1px solid rgba(16, 185, 129, 0.28)',
-            borderRadius: '8px',
-            fontSize: '12px'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span style={{ color: '#6ee7b7', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-              Global Internet Tunnel Active
-            </span>
-            <button
-              type="button"
-              onClick={handleCopyTunnel}
-              style={{
-                background: 'rgba(16, 185, 129, 0.2)',
-                border: '1px solid rgba(16, 185, 129, 0.4)',
-                color: '#6ee7b7',
-                borderRadius: '5px',
-                padding: '3px 10px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-              title="Copy public URL to paste into other PC's settings"
-            >
-              {copiedTunnel ? 'Copied Link!' : 'Copy Server Link'}
-            </button>
-          </div>
-          <div style={{ fontSize: '11px', color: '#a7f3d0', wordBreak: 'break-all' }}>
-            <code>{publicTunnelUrl}</code>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            To connect from another PC across the Internet, enter this link in that PC's <strong>⚙️ Settings</strong>.
-          </div>
-        </div>
-      ) : localIp && localIp !== '127.0.0.1' ? (
-        <div
-          style={{
-            marginTop: '8px',
-            marginBottom: '14px',
-            padding: '8px 12px',
-            background: 'rgba(56, 189, 248, 0.08)',
-            border: '1px solid rgba(56, 189, 248, 0.22)',
-            borderRadius: '8px',
-            fontSize: '11px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px'
-          }}
-        >
-          <span style={{ color: '#bae6fd' }}>
-            📡 <strong>Local Wi-Fi Server:</strong> <code style={{ color: '#38bdf8' }}>http://{localIp}:5082</code>
+      {/* Connected Server Hub Status Badge */}
+      <div
+        style={{
+          marginTop: '12px',
+          marginBottom: '14px',
+          padding: '10px 14px',
+          background: isAwsHub ? 'rgba(16, 185, 129, 0.08)' : 'rgba(56, 189, 248, 0.08)',
+          border: `1px solid ${isAwsHub ? 'rgba(16, 185, 129, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+          borderRadius: '8px',
+          fontSize: '12px'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+          <span style={{ color: isAwsHub ? '#10b981' : '#38bdf8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isAwsHub ? '#10b981' : '#38bdf8', display: 'inline-block' }} />
+            {isAwsHub ? 'AWS Cloud Signaling Server' : 'Custom Signaling Server'}
           </span>
-          <button
-            type="button"
-            onClick={handleCopyIp}
+          <span
             style={{
-              background: 'rgba(56, 189, 248, 0.15)',
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              color: '#38bdf8',
-              borderRadius: '4px',
-              padding: '2px 8px',
-              fontSize: '11px',
-              cursor: 'pointer'
+              fontSize: '10px',
+              fontWeight: 700,
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: isAwsHub ? 'rgba(16, 185, 129, 0.2)' : 'rgba(56, 189, 248, 0.2)',
+              color: isAwsHub ? '#10b981' : '#38bdf8'
             }}
-            title="Copy LAN Server URL"
           >
-            {copiedIp ? 'Copied URL!' : 'Copy URL'}
-          </button>
+            ACTIVE HUB
+          </span>
         </div>
-      ) : null}
+        <div style={{ fontSize: '11px', color: isAwsHub ? '#a7f3d0' : '#bae6fd', wordBreak: 'break-all' }}>
+          <code>{serverUrl}</code>
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
+          <span>Both computers connect globally through this hub.</span>
+          {localIp && localIp !== '127.0.0.1' && (
+            <span style={{ color: 'var(--text-muted)' }}>Local IP: {localIp}</span>
+          )}
+        </div>
+      </div>
 
       {screenSources.length > 1 && (
         <div style={{ marginBottom: '16px' }}>

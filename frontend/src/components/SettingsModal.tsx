@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { X, Check, Activity, Server, Laptop } from 'lucide-react';
+import { X, Check, Activity, Server, Laptop, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { DEFAULT_SERVER_URL, isLocalOrPrivateIp } from '../App';
 
 interface SettingsModalProps {
   serverUrl: string;
   deviceName: string;
   localIp?: string;
-  publicTunnelUrl?: string | null;
   onSave: (serverUrl: string, deviceName: string) => void;
   onClose: () => void;
 }
@@ -14,16 +14,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   serverUrl,
   deviceName,
   localIp,
-  publicTunnelUrl,
   onSave,
   onClose
 }) => {
-  const [currentUrl, setCurrentUrl] = useState(serverUrl);
+  // If the passed serverUrl is a local/LAN IP or empty, immediately default to AWS server!
+  const [currentUrl, setCurrentUrl] = useState(() => {
+    if (!serverUrl || isLocalOrPrivateIp(serverUrl)) {
+      return DEFAULT_SERVER_URL;
+    }
+    return serverUrl;
+  });
   const [currentName, setCurrentName] = useState(deviceName);
   const [testResult, setTestResult] = useState<{ status: 'idle' | 'testing' | 'success' | 'error'; message: string }>({
     status: 'idle',
     message: ''
   });
+
+  const isAwsServer = currentUrl.trim().replace(/\/+$/, '') === DEFAULT_SERVER_URL;
+  const isLocalUrl = isLocalOrPrivateIp(currentUrl);
 
   const handleTestConnection = async () => {
     setTestResult({ status: 'testing', message: 'Connecting to backend...' });
@@ -50,13 +58,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleSave = () => {
-    onSave(currentUrl, currentName);
+    onSave(currentUrl.trim().replace(/\/+$/, ''), currentName);
     onClose();
   };
 
   return (
     <div className="modal-overlay">
-      <div className="modal-dialog" style={{ maxWidth: '520px' }}>
+      <div className="modal-dialog" style={{ maxWidth: '540px' }}>
         <div
           style={{
             padding: '16px 20px',
@@ -76,6 +84,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="settings-modal">
+          {/* Warning if a local IP is selected */}
+          {isLocalUrl && (
+            <div
+              style={{
+                marginBottom: '14px',
+                padding: '10px 14px',
+                background: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.4)',
+                borderRadius: '8px',
+                fontSize: '12px',
+                color: '#fbbf24',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={16} color="#fbbf24" style={{ flexShrink: 0 }} />
+                <span>Local IP detected. For reliable remote access, use your AWS backend.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentUrl(DEFAULT_SERVER_URL)}
+                style={{
+                  background: '#f59e0b',
+                  color: '#000',
+                  fontWeight: 700,
+                  fontSize: '11px',
+                  border: 'none',
+                  borderRadius: '5px',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                Use AWS
+              </button>
+            </div>
+          )}
+
+          {/* Active AWS badge */}
+          {isAwsServer && (
+            <div
+              style={{
+                marginBottom: '14px',
+                padding: '8px 12px',
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                borderRadius: '8px',
+                fontSize: '12px',
+                color: '#10b981',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <ShieldCheck size={16} color="#10b981" />
+              <span>Configured to your live AWS Windows Signaling Backend</span>
+            </div>
+          )}
+
           <div className="settings-row">
             <label className="settings-label">
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -88,51 +158,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="settings-input"
               value={currentUrl}
               onChange={(e) => setCurrentUrl(e.target.value)}
-              placeholder="http://localhost:5082 or https://...trycloudflare.com"
+              placeholder="http://18.188.166.170:5082"
             />
-            {publicTunnelUrl && (
-              <div style={{ marginTop: '6px', fontSize: '11px', color: '#6ee7b7' }}>
-                🌐 Global Internet URL: <strong>{publicTunnelUrl}</strong>
-                <button
-                  type="button"
-                  style={{
-                    marginLeft: '8px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#10b981',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    fontSize: '11px',
-                    fontWeight: 600
-                  }}
-                  onClick={() => setCurrentUrl(publicTunnelUrl)}
-                >
-                  Use Global Internet URL
-                </button>
-              </div>
-            )}
-            {localIp && localIp !== '127.0.0.1' && (
-              <div style={{ marginTop: '4px', fontSize: '11px', color: '#bae6fd' }}>
-                📡 Local Wi-Fi URL: <strong>http://{localIp}:5082</strong>
-                <button
-                  type="button"
-                  style={{
-                    marginLeft: '8px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#38bdf8',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    fontSize: '11px'
-                  }}
-                  onClick={() => setCurrentUrl(`http://${localIp}:5082`)}
-                >
-                  Use Wi-Fi URL
-                </button>
-              </div>
-            )}
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Paste your Global Internet URL (or local Wi-Fi IP) here so both computers are connected to the same signaling server.
+            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <button
+                type="button"
+                style={{
+                  background: isAwsServer ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.12)',
+                  border: `1px solid ${isAwsServer ? '#10b981' : 'rgba(16, 185, 129, 0.4)'}`,
+                  color: '#10b981',
+                  borderRadius: '6px',
+                  padding: '5px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                onClick={() => setCurrentUrl(DEFAULT_SERVER_URL)}
+              >
+                <span>★ Use AWS Cloud Server ({DEFAULT_SERVER_URL})</span>
+                {isAwsServer && (
+                  <span style={{ fontSize: '9px', background: '#10b981', color: '#000', borderRadius: '3px', padding: '1px 5px', fontWeight: 800 }}>
+                    ACTIVE
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: '6px',
+                  padding: '5px 10px',
+                  fontSize: '11px',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setCurrentUrl('http://localhost:5082')}
+              >
+                Use Localhost (http://localhost:5082)
+              </button>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.4' }}>
+              Both computers connect to your AWS Cloud Backend (<code>http://18.188.166.170:5082</code>). Remote connections work seamlessly across any network.
+              {localIp && localIp !== '127.0.0.1' && (
+                <span style={{ display: 'block', marginTop: '4px', opacity: 0.8 }}>
+                  Local PC network adapter IP: <code>{localIp}</code>
+                </span>
+              )}
             </div>
           </div>
 

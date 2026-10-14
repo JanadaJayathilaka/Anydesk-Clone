@@ -83,6 +83,14 @@ export interface ElectronSource {
   display_id?: string;
 }
 
+export interface LanDiscoveredDevice {
+  deviceId: string;
+  deviceName: string;
+  ip: string;
+  port: number;
+  lastSeen: number;
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
   getScreenSources: (opts?: any) => Promise<ElectronSource[]>;
@@ -94,17 +102,18 @@ export interface ElectronAPI {
     cpus: number;
     totalMem: string;
     localIp?: string;
-    publicTunnelUrl?: string | null;
+    allIps?: string[];
   }>;
   startBackend: () => Promise<{ success: boolean; pid?: number | null; error?: string; message?: string }>;
   getBackendInfo: () => Promise<{ isRunning: boolean; pid: number | null; executablePath: string | null; lastError: string | null; logs?: string[] }>;
-  startTunnel: () => Promise<{ success: boolean; url?: string | null; error?: string }>;
-  getTunnelUrl: () => Promise<{ isRunning: boolean; url: string | null }>;
-  onTunnelUrl?: (callback: (url: string) => void) => void;
+  broadcastLanPresence?: (info: { deviceId: string; deviceName: string }) => void;
+  scanSubnet?: () => Promise<LanDiscoveredDevice[]>;
+  onLanDeviceDiscovered?: (callback: (device: LanDiscoveredDevice) => void) => () => void;
   minimize: () => void;
   maximize: () => void;
   close: () => void;
   isMaximized: () => Promise<boolean>;
+  simulateInput?: (input: RemoteInputEvent) => void;
 }
 
 declare global {
@@ -112,3 +121,4 @@ declare global {
     electronAPI?: ElectronAPI;
   }
 }
+
