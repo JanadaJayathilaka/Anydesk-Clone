@@ -1,0 +1,77 @@
+{
+  "name": "anydesk-clone",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AnyDesk Clone - Fast, secure Windows Remote Desktop Application",
+  "author": "AnyDesk Clone Team",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "electron": "electron electron/main.cjs",
+    "electron:dev": "electron electron/main.cjs",
+    "package": "npm run build && electron-builder --win",
+    "package:dir": "npm run build && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.anydeskclone.app",
+    "productName": "AnyDesk Clone",
+    "executableName": "AnyDesk Clone",
+    "directories": {
+      "output": "../installer-dist"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend-dist",
+        "to": "backend"
+      },
+      {
+        "from": "../tools",
+        "to": "tools"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AnyDesk Clone"
+    }
+  },
+  "dependencies": {
+    "@microsoft/signalr": "^10.0.11",
+    "lucide-react": "^1.56.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}

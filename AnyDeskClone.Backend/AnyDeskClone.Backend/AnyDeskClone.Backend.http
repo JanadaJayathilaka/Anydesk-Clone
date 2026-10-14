@@ -1,0 +1,6 @@
+@AnyDeskClone.Backend_HostAddress = http://localhost:5082
+
+GET {{AnyDeskClone.Backend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

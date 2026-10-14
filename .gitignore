@@ -1,0 +1,145 @@
+# ==============================================================================
+# Root & Distribution / Release Outputs
+# ==============================================================================
+backend-dist/
+installer-dist/
+win-unpacked/
+release/
+*.blockmap
+builder-debug.yml
+builder-effective-config.yaml
+
+# ==============================================================================
+# Frontend (Node.js, React, Vite, TypeScript, Electron)
+# ==============================================================================
+# Dependencies
+node_modules/
+jspm_packages/
+web_modules/
+.pnp/
+.pnp.js
+
+# Build Outputs
+dist/
+dist-ssr/
+out/
+build/
+.vite/
+.parcel-cache/
+.next/
+.nuxt/
+
+# TypeScript & Linter Cache
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+.eslintcache
+.oxlintcache
+.stylelintcache
+
+# Package Manager Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Environment Variables & Secrets
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.local
+!.env.example
+
+# ==============================================================================
+# Backend (.NET / C# / ASP.NET Core)
+# ==============================================================================
+# Build & Output Artifacts
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+publish/
+
+# Visual Studio & Solution User Files
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.csproj.user
+*.pubxml.user
+
+# JetBrains Rider / ReSharper
+.idea/
+*.sln.iml
+_ReSharper*/
+*.DotSettings.user
+
+# OmniSharp / C# Dev Kit / Roslyn
+.ionide/
+.csharp/
+.roslyn/
+
+# ASP.NET Core Sensitive Configs & Local Overrides
+appsettings.Production.json
+appsettings.*.local.json
+appsettings.local.json
+secrets.json
+
+# Debugging & Symbol Files
+*.pdb
+*.mdb
+*.opendb
+*.dbmdl
+
+# ==============================================================================
+# Editors & IDEs
+# ==============================================================================
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+*.sublime-workspace
+*.sublime-project
+*.sw?
+*~
+
+# ==============================================================================
+# Operating System Files
+# ==============================================================================
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ==============================================================================
+# Tools & Large Binaries
+# ==============================================================================
+# Uncomment below if you want to exclude downloaded tunnel tools or binaries from git
+# tools/*.exe
