@@ -8,24 +8,15 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun4.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:stun.relay.metered.ca:80' },
-  {
-    urls: [
-      'turn:standard.relay.metered.ca:80',
-      'turn:standard.relay.metered.ca:443',
-      'turn:standard.relay.metered.ca:443?transport=tcp'
-    ],
-    username: 'e49987cfbe2b9265fefbe7ce',
-    credential: 'b6f/eJ8m0rCeqq74'
-  },
+  { urls: 'stun:openrelay.metered.ca:80' },
   {
     urls: [
       'turn:openrelay.metered.ca:80',
       'turn:openrelay.metered.ca:443',
       'turn:openrelay.metered.ca:443?transport=tcp'
     ],
-    username: 'openrelay',
-    credential: 'openrelay'
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
   }
 ];
 
@@ -81,13 +72,9 @@ export class WebRtcService {
 
   public async acquireScreenStream(sourceId?: string): Promise<MediaStream> {
     try {
-      const streamPromise = this.doAcquireScreenStream(sourceId);
-      const timeoutPromise = new Promise<MediaStream>((_, reject) =>
-        setTimeout(() => reject(new Error('Screen capture request timed out after 3s')), 3000)
-      );
-      return await Promise.race([streamPromise, timeoutPromise]);
+      return await this.doAcquireScreenStream(sourceId);
     } catch (err) {
-      console.warn('[WebRTC] Screen capture unavailable or timed out, using virtual display stream:', err);
+      console.warn('[WebRTC] Screen capture unavailable, using virtual display stream:', err);
       return this.createVirtualDisplayStream();
     }
   }
@@ -836,6 +823,19 @@ export class WebRtcService {
         type: 'host-screen-switched',
         activeSourceId: newSourceId
       });
+
+      if (this.sessionId && this.targetDeviceId) {
+        signalRService.sendSignal({
+          sessionId: this.sessionId,
+          senderDeviceId: this.currentDeviceId,
+          targetDeviceId: this.targetDeviceId,
+          type: 'command',
+          payload: {
+            type: 'host-screen-switched',
+            activeSourceId: newSourceId
+          }
+        }).catch(() => {});
+      }
 
       return true;
     } catch (err) {

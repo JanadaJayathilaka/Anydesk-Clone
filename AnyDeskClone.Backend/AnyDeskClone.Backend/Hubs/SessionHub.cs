@@ -90,15 +90,7 @@ public class SessionHub : Hub
             };
 
             // Notify controller
-            var controllerDevice = _sessionService.GetDevice(session.ControllerDeviceId);
-            if (controllerDevice != null && !string.IsNullOrEmpty(controllerDevice.ConnectionId))
-            {
-                await Clients.Client(controllerDevice.ConnectionId).SendAsync("SessionApproved", approvedPayload);
-            }
-            else
-            {
-                await Clients.Group($"device_{session.ControllerDeviceId}").SendAsync("SessionApproved", approvedPayload);
-            }
+            await Clients.Group($"device_{session.ControllerDeviceId}").SendAsync("SessionApproved", approvedPayload);
 
             // Notify host
             await Clients.Caller.SendAsync("SessionStarted", new
@@ -115,15 +107,7 @@ public class SessionHub : Hub
                 sessionId = session.SessionId,
                 reason = "Host rejected the connection request."
             };
-            var controllerDevice = _sessionService.GetDevice(session.ControllerDeviceId);
-            if (controllerDevice != null && !string.IsNullOrEmpty(controllerDevice.ConnectionId))
-            {
-                await Clients.Client(controllerDevice.ConnectionId).SendAsync("SessionRejected", rejectPayload);
-            }
-            else
-            {
-                await Clients.Group($"device_{session.ControllerDeviceId}").SendAsync("SessionRejected", rejectPayload);
-            }
+            await Clients.Group($"device_{session.ControllerDeviceId}").SendAsync("SessionRejected", rejectPayload);
         }
     }
 
@@ -156,16 +140,8 @@ public class SessionHub : Hub
             payload = message.Payload
         };
 
-            // Forward signaling payload directly to the target device (or its device group if connection ID is transitioning)
-            var targetDevice = _sessionService.GetDevice(message.TargetDeviceId);
-            if (targetDevice != null && !string.IsNullOrEmpty(targetDevice.ConnectionId))
-            {
-                await Clients.Client(targetDevice.ConnectionId).SendAsync("ReceiveSignal", payload);
-            }
-            else
-            {
-                await Clients.Group($"device_{message.TargetDeviceId}").SendAsync("ReceiveSignal", payload);
-            }
+            // Forward signaling payload directly to the target device group
+            await Clients.Group($"device_{message.TargetDeviceId}").SendAsync("ReceiveSignal", payload);
         }
 
     public async Task SendInput(RemoteInputEvent inputEvent)

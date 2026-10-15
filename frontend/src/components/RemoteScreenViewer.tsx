@@ -98,12 +98,10 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         setIsVideoPlaying(true);
       });
 
-      // Quick fallback: if track is live or video ready, unhide overlay
+      // Quick fallback: if stream is passed, unhide connecting overlay immediately
       const checkTimer = setTimeout(() => {
-        if (tracks.length > 0 || video.currentTime > 0 || video.readyState >= 1) {
-          setIsVideoPlaying(true);
-        }
-      }, 200);
+        setIsVideoPlaying(true);
+      }, 150);
       return () => clearTimeout(checkTimer);
     } else {
       setIsVideoPlaying(false);
@@ -411,23 +409,14 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
                       );
                     })
                   ) : (
-                    <>
-                      <button
-                        className="dropdown-item active"
-                        onClick={() => handleSwitchScreenChoice('screen:0:0')}
-                      >
-                        <Monitor size={14} color="var(--color-green)" />
-                        <span style={{ flex: 1, textAlign: 'left' }}>Display 1 (Primary)</span>
-                        <Check size={13} color="var(--color-green)" />
-                      </button>
-                      <button
-                        className="dropdown-item"
-                        onClick={() => handleSwitchScreenChoice('screen:1:0')}
-                      >
-                        <Monitor size={14} />
-                        <span style={{ flex: 1, textAlign: 'left' }}>Display 2</span>
-                      </button>
-                    </>
+                    <button
+                      className="dropdown-item active"
+                      onClick={() => handleSwitchScreenChoice(selectedSourceId || 'screen:0:0')}
+                    >
+                      <Monitor size={14} color="var(--color-green)" />
+                      <span style={{ flex: 1, textAlign: 'left' }}>Host Primary Screen</span>
+                      <Check size={13} color="var(--color-green)" />
+                    </button>
                   )}
                 </div>
               )}
@@ -497,188 +486,76 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         </div>
       </div>
 
-      {/* Screen Area: Host Dashboard vs Remote Controller Viewer */}
-      {isHost ? (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px',
-          background: 'linear-gradient(135deg, #090d16 0%, #0f172a 50%, #020617 100%)',
-          color: '#fff',
-          overflow: 'auto'
-        }}>
+      {/* Screen Canvas / Video Area for Controller PC (Remote Viewer) */}
+      <div
+        ref={canvasWrapperRef}
+        className={`screen-canvas-wrapper ${isInteractive ? 'interactive' : ''}`}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onWheel={handleWheel}
+        onContextMenu={(e) => isInteractive && e.preventDefault()}
+        style={{ position: 'relative', width: '100%', height: '100%' }}
+      >
+        {(!remoteStream || !isVideoPlaying) && (
           <div style={{
-            background: 'rgba(15, 23, 42, 0.75)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '16px',
-            padding: '28px 36px',
-            maxWidth: '540px',
-            width: '100%',
+            position: 'absolute',
+            inset: 0,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(16px)'
+            justifyContent: 'center',
+            gap: '16px',
+            color: '#fff',
+            padding: '32px',
+            background: 'var(--bg-dark)',
+            zIndex: 10
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-              <div className="status-dot connected" style={{ width: '12px', height: '12px' }} />
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-green)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Desktop Sharing Active
-              </span>
+            <div className="status-dot connecting" style={{ width: '22px', height: '22px' }} />
+            <div style={{ fontSize: '20px', fontWeight: 600 }}>
+              Connecting to Remote Desktop Feed...
             </div>
-
-            <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '6px 0', textAlign: 'center', color: '#f8fafc' }}>
-              Desk Controlled by {formattedPeerId}
-            </h2>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', margin: '0 0 20px', lineHeight: 1.5 }}>
-              Your screen is being streamed to the remote partner. You can work normally or end the session at any time.
-            </p>
-
-            {/* Live stream preview thumbnail so host can verify broadcast without mirror loop */}
-            <div style={{
-              width: '320px',
-              height: '180px',
-              background: '#020617',
-              borderRadius: '10px',
-              overflow: 'hidden',
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              position: 'relative',
-              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
-              marginBottom: '20px'
-            }}>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              />
-              <div style={{
-                position: 'absolute',
-                top: '8px',
-                right: '8px',
-                background: 'rgba(15, 23, 42, 0.85)',
-                border: '1px solid rgba(56, 189, 248, 0.4)',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                fontSize: '11px',
-                fontWeight: 600,
-                color: '#38bdf8',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#38bdf8' }} />
-                BROADCASTING
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%', marginBottom: '24px' }}>
-              <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>DURATION</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc', marginTop: '2px' }}>{formatTimer(elapsedSeconds)}</div>
-              </div>
-              <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>STATUS</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-green)', marginTop: '2px' }}>60 FPS Online</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
-              <button
-                onClick={() => {
-                  if (window.electronAPI?.minimize) {
-                    window.electronAPI.minimize();
-                  }
-                }}
-                className="btn btn-secondary"
-                style={{ flex: 1, padding: '10px 16px', fontSize: '13px', fontWeight: 600 }}
-              >
-                Minimize Window
-              </button>
-              <button
-                onClick={onDisconnect}
-                className="btn btn-danger"
-                style={{ flex: 1, padding: '10px 16px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-              >
-                <Power size={14} />
-                <span>Disconnect</span>
-              </button>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '480px' }}>
+              {connectionDetailStatus || `Establishing direct peer-to-peer connection with ${formattedPeerId}. Receiving video stream...`}
             </div>
           </div>
-        </div>
-      ) : (
-        /* Screen Canvas / Video Area for Controller PC (Remote Viewer) */
-        <div
-          ref={canvasWrapperRef}
-          className={`screen-canvas-wrapper ${isInteractive ? 'interactive' : ''}`}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onWheel={handleWheel}
-          onContextMenu={(e) => isInteractive && e.preventDefault()}
-          style={{ position: 'relative', width: '100%', height: '100%' }}
-        >
-          {(!remoteStream || !isVideoPlaying) && (
-            <div style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '16px',
-              color: '#fff',
-              padding: '32px',
-              background: 'var(--bg-dark)',
-              zIndex: 10
-            }}>
-              <div className="status-dot connecting" style={{ width: '22px', height: '22px' }} />
-              <div style={{ fontSize: '20px', fontWeight: 600 }}>
-                Connecting to Remote Desktop Feed...
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '480px' }}>
-                {connectionDetailStatus || `Establishing direct peer-to-peer connection with ${formattedPeerId}. Receiving video stream...`}
-              </div>
-            </div>
-          )}
+        )}
 
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            onPlaying={() => {
-              setIsVideoPlaying(true);
-              updateVideoBox();
-            }}
-            onLoadedData={() => {
-              setIsVideoPlaying(true);
-              updateVideoBox();
-            }}
-            onCanPlay={() => {
-              setIsVideoPlaying(true);
-              updateVideoBox();
-            }}
-            onLoadedMetadata={() => {
-              setIsVideoPlaying(true);
-              updateVideoBox();
-              videoRef.current?.play().catch(() => {});
-            }}
-            className="remote-video-element"
-            style={{
-              objectFit: displayMode === 'contain' ? 'contain' : 'fill',
-              width: '100%',
-              height: '100%',
-              display: 'block'
-            }}
-          />
-        </div>
-      )}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onPlaying={() => {
+            setIsVideoPlaying(true);
+            updateVideoBox();
+          }}
+          onLoadedData={() => {
+            setIsVideoPlaying(true);
+            updateVideoBox();
+          }}
+          onCanPlay={() => {
+            setIsVideoPlaying(true);
+            updateVideoBox();
+          }}
+          onLoadedMetadata={() => {
+            setIsVideoPlaying(true);
+            updateVideoBox();
+            videoRef.current?.play().catch(() => {});
+          }}
+          onTimeUpdate={() => {
+            setIsVideoPlaying(true);
+          }}
+          className="remote-video-element"
+          style={{
+            objectFit: displayMode === 'contain' ? 'contain' : 'fill',
+            width: '100%',
+            height: '100%',
+            display: 'block'
+          }}
+        />
+      </div>
     </div>
   );
 };

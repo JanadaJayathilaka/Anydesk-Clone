@@ -698,11 +698,11 @@ ipcMain.on('system:simulate-input', (event, input) => {
 });
 
 app.whenReady().then(async () => {
-  // Automatically handle getDisplayMedia requests with primary screen
+  // Automatically handle getDisplayMedia requests with primary or active screen
   if (session.defaultSession) {
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       try {
-        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+        const sources = await desktopCapturer.getSources({ types: ['screen'] });
         let chosen = null;
         if (activeScreenSourceId) {
           chosen = sources.find((s) => s.id === activeScreenSourceId);
@@ -711,8 +711,10 @@ app.whenReady().then(async () => {
           chosen = sources.find((s) => s.id.startsWith('screen')) || sources[0];
         }
         if (chosen) {
+          console.log('[DisplayMedia] Serving screen source:', chosen.name, chosen.id);
           callback({ video: chosen });
         } else {
+          console.warn('[DisplayMedia] No screen source found to serve');
           callback(null);
         }
       } catch (err) {

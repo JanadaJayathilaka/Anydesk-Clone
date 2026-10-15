@@ -6,6 +6,7 @@ import { RemoteDeskCard } from './components/RemoteDeskCard';
 import { RecentSessions } from './components/RecentSessions';
 import { IncomingSessionModal } from './components/IncomingSessionModal';
 import { RemoteScreenViewer } from './components/RemoteScreenViewer';
+import { HostSessionView } from './components/HostSessionView';
 import { SettingsModal } from './components/SettingsModal';
 
 import type {
@@ -602,11 +603,23 @@ export const App: React.FC = () => {
     setConnectionStatus('connected');
     setRemoteStream(stream);
 
-    // 2. Notify controller that request was approved
-    const screensToSend: ElectronSource[] = screenSources.length > 0 ? screenSources : [
-      { id: 'screen:0:0', name: 'Primary Display 1', thumbnail: null },
-      { id: 'screen:1:0', name: 'Secondary Display 2', thumbnail: null }
-    ];
+    // 2. Query fresh host screens and notify controller
+    let screensToSend: ElectronSource[] = screenSources;
+    if (window.electronAPI?.getScreenSources) {
+      try {
+        const fresh = await window.electronAPI.getScreenSources();
+        const scrs = fresh.filter((s) => s.id.startsWith('screen'));
+        if (scrs.length > 0) {
+          screensToSend = scrs;
+          setScreenSources(scrs);
+        }
+      } catch {}
+    }
+    if (screensToSend.length === 0) {
+      screensToSend = [
+        { id: 'screen:0:0', name: 'Primary Display 1', thumbnail: null }
+      ];
+    }
     webRtcService.setHostScreensList(screensToSend, selectedSourceId || screensToSend[0]?.id);
 
     await signalRService.respondSession(req.sessionId, true, approvedPermissions);
@@ -638,6 +651,15 @@ export const App: React.FC = () => {
     }
   };
 
+  // Update permissions live on host and notify controller
+  const handleUpdatePermissions = (newPerms: SessionPermissions) => {
+    setPermissions(newPerms);
+    webRtcService.sendControlCommand({
+      type: 'permissions-update',
+      permissions: newPerms
+    });
+  };
+
   // Host rejects connection
   const handleRejectIncoming = async () => {
     if (!incomingRequest) return;
@@ -663,14 +685,25 @@ export const App: React.FC = () => {
     setStatusMessage('');
   };
 
-  // Switch Screen without ending session - Host cannot change screens, only the other PC (controller) can!
+  // Switch Screen without ending session - Both Host and Controller can switch screen!
   const handleSwitchScreen = async (newSourceId: string) => {
-    if (isHost) {
-      console.warn('Host cannot change screens: only the other PC can change screens.');
-      return;
-    }
     setSelectedSourceId(newSourceId);
-    webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
+    if (isHostRef.current) {
+      console.log('[App] Host directly switching active screen broadcast to:', newSourceId);
+      await webRtcService.switchScreenSource(newSourceId);
+    } else {
+      console.log('[App] Controller requesting Host to switch screen to:', newSourceId);
+      webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
+      if (activeSessionIdRef.current && activePeerIdRef.current) {
+        signalRService.sendSignal({
+          sessionId: activeSessionIdRef.current,
+          senderDeviceId: deviceIdRef.current,
+          targetDeviceId: activePeerIdRef.current,
+          type: 'command',
+          payload: { type: 'switch-screen', sourceId: newSourceId }
+        }).catch(() => {});
+      }
+    }
   };
 
   // Input event sending
@@ -815,16 +848,30 @@ export const App: React.FC = () => {
             }}
           />
         </main>
+      ) : isHost ? (
+        /* Host Session Control Center: The host sees their own dashboard & controls */
+        <HostSessionView
+          remoteDeviceId={activePeerId}
+          sessionId={activeSessionId}
+          stats={peerStats}
+          permissions={permissions}
+          onUpdatePermissions={handleUpdatePermissions}
+          onDisconnect={() => handleEndSession(true)}
+          screenSources={screenSources}
+          selectedSourceId={selectedSourceId}
+          onSelectSourceId={handleSwitchScreen}
+          localStream={remoteStream}
+        />
       ) : (
-        /* Remote Screen Viewer View when session is active */
+        /* Controller Remote Desktop Feed: The other PC sees the live host screen */
         <RemoteScreenViewer
           remoteStream={remoteStream}
           remoteDeviceId={activePeerId}
           sessionId={activeSessionId}
-          isHost={isHost}
+          isHost={false}
           stats={peerStats}
           connectionDetailStatus={connectionDetailStatus}
-          screenSources={isHost ? [] : (remoteHostScreens.length > 0 ? remoteHostScreens : screenSources)}
+          screenSources={remoteHostScreens}
           selectedSourceId={selectedSourceId}
           onSelectSourceId={handleSwitchScreen}
           onSendInputEvent={handleSendInputEvent}
