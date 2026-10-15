@@ -7,7 +7,26 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun4.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' }
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  {
+    urls: [
+      'turn:standard.relay.metered.ca:80',
+      'turn:standard.relay.metered.ca:443',
+      'turn:standard.relay.metered.ca:443?transport=tcp'
+    ],
+    username: 'e49987cfbe2b9265fefbe7ce',
+    credential: 'b6f/eJ8m0rCeqq74'
+  },
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelay',
+    credential: 'openrelay'
+  }
 ];
 
 export class WebRtcService {
@@ -28,6 +47,9 @@ export class WebRtcService {
 
   private pendingSignals: any[] = [];
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private localOffer: RTCSessionDescriptionInit | null = null;
+  private offerRetransmitInterval: any = null;
+  private requestOfferInterval: any = null;
 
   public onRemoteStreamReceived: ((stream: MediaStream) => void) | null = null;
   public onRemoteInputReceived: ((input: RemoteInputEvent) => void) | null = null;
@@ -38,6 +60,8 @@ export class WebRtcService {
   public onHostScreensReceived: ((screens: ElectronSource[], activeSourceId?: string) => void) | null = null;
   public onHostScreenSwitched: ((activeSourceId: string) => void) | null = null;
   public onControlChannelOpen: (() => void) | null = null;
+  public onHostCursorPositionReceived: ((pos: { x: number; y: number }) => void) | null = null;
+  public onHostApprovedSignalReceived: ((sessionId: string, senderDeviceId: string) => void) | null = null;
 
   public setHostScreensList(screens: ElectronSource[], activeSourceId?: string) {
     this.hostScreensList = screens;
@@ -71,7 +95,31 @@ export class WebRtcService {
   private async doAcquireScreenStream(sourceId?: string): Promise<MediaStream> {
     let chosenSourceId = sourceId;
 
-    // 1. If in Electron and no sourceId selected, query desktopCapturer for primary screen
+    if (chosenSourceId && window.electronAPI?.setActiveDisplay) {
+      window.electronAPI.setActiveDisplay(chosenSourceId);
+    }
+
+    // 1. Standard getDisplayMedia flow (handled seamlessly by Electron setDisplayMediaRequestHandler)
+    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            frameRate: { ideal: 60, max: 60 },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        });
+        if (stream && stream.getVideoTracks().length > 0) {
+          console.log('[WebRTC] Successfully acquired screen stream via getDisplayMedia');
+          return stream;
+        }
+      } catch (err) {
+        console.warn('[WebRTC] getDisplayMedia failed, trying desktopCapturer getUserMedia:', err);
+      }
+    }
+
+    // 2. Electron desktop capturer flow using chosenSourceId
     if (!chosenSourceId && window.electronAPI?.getScreenSources) {
       try {
         const sources = await window.electronAPI.getScreenSources();
@@ -85,7 +133,6 @@ export class WebRtcService {
       }
     }
 
-    // 2. Electron desktop capturer flow using chosen sourceId
     if (chosenSourceId) {
       try {
         const constraints: any = {
@@ -108,31 +155,11 @@ export class WebRtcService {
           return stream;
         }
       } catch (err) {
-        console.warn('[WebRTC] Electron getUserMedia failed, trying getDisplayMedia:', err);
+        console.warn('[WebRTC] Electron getUserMedia failed, falling back to virtual display:', err);
       }
     }
 
-    // 3. Standard getDisplayMedia flow (intercepted by Electron setDisplayMediaRequestHandler)
-    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            frameRate: { ideal: 60, max: 60 },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
-          audio: false
-        });
-        if (stream && stream.getVideoTracks().length > 0) {
-          console.log('[WebRTC] Successfully acquired screen stream via getDisplayMedia');
-          return stream;
-        }
-      } catch (err) {
-        console.warn('[WebRTC] getDisplayMedia failed, falling back to virtual display:', err);
-      }
-    }
-
-    // 4. Safe fallback: canvas-driven virtual display stream
+    // 3. Safe fallback: canvas-driven virtual display stream
     console.warn('[WebRTC] Screen capture unavailable, using virtual desktop feed');
     return this.createVirtualDisplayStream();
   }
@@ -212,46 +239,63 @@ export class WebRtcService {
   ): Promise<void> {
     console.log('[WebRTC] Starting Host session with stream for session:', sessionId);
     this.isHostRole = true;
-    this.closeExistingPeerConnection();
+    this.closeExistingPeerConnection(stream);
     this.sessionId = sessionId;
     this.currentDeviceId = hostDeviceId;
     this.targetDeviceId = controllerDeviceId;
-    this.localStream = stream;
 
-    // Ensure we have a valid video track
-    if (!this.localStream || this.localStream.getVideoTracks().length === 0) {
-      console.warn('[WebRTC Host] No video track found in stream, generating virtual display stream');
+    // Check if the passed stream has live tracks, else generate virtual stream
+    const hasLiveVideo = stream && stream.getVideoTracks().some((t) => t.readyState === 'live');
+    if (!hasLiveVideo) {
+      console.warn('[WebRTC Host] No live video track found in stream, generating virtual display stream');
       this.localStream = this.createVirtualDisplayStream();
+    } else {
+      this.localStream = stream;
     }
 
     // 1. Initialize PeerConnection
     this.peerConnection = this.createPeerConnection();
 
-    // 2. Add Screen Tracks to PeerConnection
+    // 2. Setup Host Data Channel BEFORE creating offer (so it's included in SDP)
+    this.setupHostDataChannel();
+
+    // 3. Add Screen Tracks to PeerConnection
     this.localStream.getTracks().forEach((track) => {
-      console.log('[WebRTC Host] Adding track to PC:', track.kind, track.label);
+      console.log('[WebRTC Host] Adding track to PC:', track.kind, track.label, 'readyState:', track.readyState);
       this.peerConnection?.addTrack(track, this.localStream!);
     });
 
-    // 3. Create Host Offer
-    const offer = await this.peerConnection.createOffer({
-      offerToReceiveVideo: false,
-      offerToReceiveAudio: false
-    });
+    // 4. Create Host Offer (includes the video track + data channel in SDP)
+    const offer = await this.peerConnection.createOffer();
     await this.peerConnection.setLocalDescription(offer);
+    this.localOffer = {
+      type: offer.type,
+      sdp: offer.sdp
+    };
 
-    // 4. Send Offer to Controller
+    // 5. Send Offer to Controller and periodically retransmit until answered/connected
     console.log('[WebRTC Host] Sending Offer to controller:', controllerDeviceId);
-    await signalRService.sendSignal({
-      sessionId: this.sessionId,
-      senderDeviceId: this.currentDeviceId,
-      targetDeviceId: this.targetDeviceId,
-      type: 'offer',
-      payload: {
-        type: offer.type,
-        sdp: offer.sdp
+    const sendHostOffer = async () => {
+      if (!this.peerConnection || !this.localOffer) return;
+      if (this.peerConnection.remoteDescription || this.peerConnection.iceConnectionState === 'connected') {
+        this.stopOfferRetransmit();
+        return;
       }
-    });
+      console.log('[WebRTC Host] Transmitting/Retransmitting Offer to controller:', this.targetDeviceId);
+      await signalRService.sendSignal({
+        sessionId: this.sessionId,
+        senderDeviceId: this.currentDeviceId,
+        targetDeviceId: this.targetDeviceId,
+        type: 'offer',
+        payload: {
+          type: this.localOffer.type,
+          sdp: this.localOffer.sdp
+        }
+      });
+    };
+
+    await sendHostOffer();
+    this.startOfferRetransmit(sendHostOffer);
 
     this.startStatsMonitoring();
     await this.flushPendingSignals();
@@ -263,6 +307,20 @@ export class WebRtcService {
     hostDeviceId: string
   ): Promise<void> {
     console.log('[WebRTC] Starting Controller session for session:', sessionId);
+
+    // If already active and connected or connecting to this exact session, do not tear down
+    if (
+      this.peerConnection &&
+      this.sessionId === sessionId &&
+      !this.isHostRole &&
+      this.peerConnection.signalingState !== 'closed' &&
+      this.peerConnection.connectionState !== 'closed' &&
+      this.peerConnection.connectionState !== 'failed'
+    ) {
+      console.log('[WebRTC] Controller session already in progress for session:', sessionId);
+      return;
+    }
+
     this.isHostRole = false;
     this.onDetailedStatus?.('Waiting for host screen feed offer...');
     this.closeExistingPeerConnection();
@@ -273,21 +331,54 @@ export class WebRtcService {
     // 1. Initialize PeerConnection
     this.peerConnection = this.createPeerConnection();
 
-    // 2. Add video recvonly transceiver to receive video feed from Host
-    try {
-      this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
-      console.log('[WebRTC Controller] Added recvonly video transceiver');
-    } catch (e) {
-      console.warn('[WebRTC Controller] addTransceiver warning:', e);
-    }
-
-    // 3. Setup Data Channels as initiator
-    this.setupControllerDataChannels();
-
     this.startStatsMonitoring();
 
-    // 4. Process any Offer or ICE candidates that arrived before PC was ready
+    // 2. Proactively ping host for offer every 1.5s until offer received
+    const requestOffer = async () => {
+      if (!this.peerConnection) return;
+      if (this.peerConnection.remoteDescription || this.peerConnection.iceConnectionState === 'connected') {
+        this.stopRequestOfferInterval();
+        return;
+      }
+      console.log('[WebRTC Controller] Requesting offer from host:', this.targetDeviceId);
+      await signalRService.sendSignal({
+        sessionId: this.sessionId,
+        senderDeviceId: this.currentDeviceId,
+        targetDeviceId: this.targetDeviceId,
+        type: 'command',
+        payload: { type: 'request-offer' }
+      });
+    };
+
+    await requestOffer();
+    this.startRequestOfferInterval(requestOffer);
+
+    // 3. Process any Offer or ICE candidates that arrived before PC was ready
     await this.flushPendingSignals();
+  }
+
+  private startOfferRetransmit(fn: () => void) {
+    this.stopOfferRetransmit();
+    this.offerRetransmitInterval = setInterval(fn, 2000);
+  }
+
+  private stopOfferRetransmit() {
+    if (this.offerRetransmitInterval) {
+      clearInterval(this.offerRetransmitInterval);
+      this.offerRetransmitInterval = null;
+    }
+  }
+
+  private startRequestOfferInterval(fn: () => void) {
+    this.stopRequestOfferInterval();
+    this.requestOfferInterval = setInterval(fn, 2000);
+  }
+
+  private stopRequestOfferInterval() {
+    if (this.requestOfferInterval) {
+      clearInterval(this.requestOfferInterval);
+      this.requestOfferInterval = null;
+    }
   }
 
   private createPeerConnection(): RTCPeerConnection {
@@ -324,11 +415,13 @@ export class WebRtcService {
     pc.oniceconnectionstatechange = () => {
       console.log('[WebRTC] ICE Connection State changed:', pc.iceConnectionState);
       if (pc.iceConnectionState === 'checking') {
-        this.onDetailedStatus?.('Connecting over local Wi-Fi (finding network path)...');
+        this.onDetailedStatus?.('Connecting over network path (negotiating peer link)...');
       } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        this.onDetailedStatus?.('Direct peer-to-peer link established! Waiting for video stream...');
+        this.stopOfferRetransmit();
+        this.stopRequestOfferInterval();
+        this.onDetailedStatus?.('Direct peer connection established! Streaming desktop video...');
       } else if (pc.iceConnectionState === 'failed') {
-        this.onDetailedStatus?.('Direct peer connection failed. Check Windows Defender firewall.');
+        this.onDetailedStatus?.('Peer connection failed. Retrying network route...');
       } else if (pc.iceConnectionState === 'disconnected') {
         this.onDetailedStatus?.('Peer connection disconnected.');
       }
@@ -348,13 +441,18 @@ export class WebRtcService {
       }
       this.remoteStream = stream;
 
-      event.track.onunmute = () => {
-        console.log('[WebRTC] Remote track unmuted, notifying listener');
+      const triggerStreamReady = () => {
+        console.log('[WebRTC] Remote track active & live, notifying listener');
         this.onDetailedStatus?.('Video active!');
         if (this.remoteStream) {
           this.onRemoteStreamReceived?.(this.remoteStream);
         }
       };
+
+      event.track.onunmute = triggerStreamReady;
+      if (event.track.readyState === 'live') {
+        triggerStreamReady();
+      }
 
       this.onRemoteStreamReceived?.(this.remoteStream);
     };
@@ -371,17 +469,17 @@ export class WebRtcService {
     return pc;
   }
 
-  private setupControllerDataChannels() {
+  private setupHostDataChannel() {
     if (!this.peerConnection) return;
 
     try {
       this.controlChannel = this.peerConnection.createDataChannel('control-channel', {
-        ordered: false,
-        maxRetransmits: 0
+        ordered: true
       });
       this.setupControlChannel(this.controlChannel);
+      console.log('[WebRTC Host] Created control data channel');
     } catch (e) {
-      console.warn('[WebRTC] createDataChannel error:', e);
+      console.warn('[WebRTC Host] createDataChannel error:', e);
     }
   }
 
@@ -431,6 +529,10 @@ export class WebRtcService {
           this.onHostScreenSwitched?.(data.activeSourceId);
           return;
         }
+        if (data.type === 'host-cursor') {
+          this.onHostCursorPositionReceived?.({ x: data.x, y: data.y });
+          return;
+        }
         if (data.type === 'switch-sides') {
           console.log('[WebRTC] Received switch-sides command');
           this.onSwitchSidesRequested?.();
@@ -445,13 +547,26 @@ export class WebRtcService {
 
   public async handleSignalMessage(message: SignalMessage) {
     const rawType = (message.type || (message as any).Type || '').toLowerCase();
-    console.log('[WebRTC] Received signal message:', rawType, 'from:', message.senderDeviceId || (message as any).SenderDeviceId);
+    const sDeviceId = message.senderDeviceId || (message as any).SenderDeviceId;
+    console.log('[WebRTC] Received signal message:', rawType, 'from:', sDeviceId);
 
-    if (!this.targetDeviceId && (message.senderDeviceId || (message as any).SenderDeviceId)) {
-      this.targetDeviceId = message.senderDeviceId || (message as any).SenderDeviceId;
+    // Filter out our own echoed signals
+    if (sDeviceId && this.currentDeviceId && sDeviceId === this.currentDeviceId) {
+      return;
+    }
+
+    if (!this.targetDeviceId && sDeviceId) {
+      this.targetDeviceId = sDeviceId;
     }
     if (!this.sessionId && (message.sessionId || (message as any).SessionId)) {
       this.sessionId = message.sessionId || (message as any).SessionId;
+    }
+
+    const sId = message.sessionId || (message as any).SessionId;
+    if (rawType === 'offer' || rawType === 'command') {
+      if (sId) {
+        this.onHostApprovedSignalReceived?.(sId, sDeviceId);
+      }
     }
 
     if (!this.peerConnection) {
@@ -472,10 +587,26 @@ export class WebRtcService {
       if (!rawPayload) return;
 
       if (type === 'offer') {
+        this.stopRequestOfferInterval();
         console.log('[WebRTC Controller] Processing WebRTC Offer from host...');
         this.onDetailedStatus?.('Received host offer. Creating and sending answer...');
-        const sdp = typeof rawPayload === 'string' ? rawPayload : (rawPayload.sdp || rawPayload.Sdp || '');
-        const sdpType = typeof rawPayload === 'object' ? (rawPayload.type || rawPayload.Type || 'offer').toLowerCase() : 'offer';
+
+        let payloadObj = rawPayload;
+        if (typeof rawPayload === 'string') {
+          try {
+            payloadObj = JSON.parse(rawPayload);
+          } catch {
+            payloadObj = { sdp: rawPayload, type: 'offer' };
+          }
+        }
+
+        const sdp = payloadObj.sdp || payloadObj.Sdp || (typeof rawPayload === 'string' ? rawPayload : '');
+        const sdpType = (payloadObj.type || payloadObj.Type || 'offer').toLowerCase();
+
+        if (this.peerConnection.remoteDescription) {
+          console.log('[WebRTC Controller] Remote description already set, ignoring duplicate offer');
+          return;
+        }
 
         if (this.peerConnection.signalingState !== 'stable' && this.peerConnection.signalingState !== 'have-local-offer') {
           console.warn('[WebRTC Controller] Ignoring duplicate or unexpected offer in signalingState:', this.peerConnection.signalingState);
@@ -507,9 +638,25 @@ export class WebRtcService {
         console.log('[WebRTC Controller] Answer sent to Host');
         this.onDetailedStatus?.('Handshake answer sent. Establishing direct LAN link...');
       } else if (type === 'answer') {
+        this.stopOfferRetransmit();
         console.log('[WebRTC Host] Processing WebRTC Answer from controller...');
-        const sdp = typeof rawPayload === 'string' ? rawPayload : (rawPayload.sdp || rawPayload.Sdp || '');
-        const sdpType = typeof rawPayload === 'object' ? (rawPayload.type || rawPayload.Type || 'answer').toLowerCase() : 'answer';
+
+        let payloadObj = rawPayload;
+        if (typeof rawPayload === 'string') {
+          try {
+            payloadObj = JSON.parse(rawPayload);
+          } catch {
+            payloadObj = { sdp: rawPayload, type: 'answer' };
+          }
+        }
+
+        const sdp = payloadObj.sdp || payloadObj.Sdp || (typeof rawPayload === 'string' ? rawPayload : '');
+        const sdpType = (payloadObj.type || payloadObj.Type || 'answer').toLowerCase();
+
+        if (this.peerConnection.remoteDescription) {
+          console.log('[WebRTC Host] Remote description already set, ignoring repeated answer');
+          return;
+        }
 
         if (this.peerConnection.signalingState !== 'have-local-offer') {
           console.warn('[WebRTC Host] Ignoring duplicate or unexpected answer in signalingState:', this.peerConnection.signalingState);
@@ -524,7 +671,14 @@ export class WebRtcService {
 
         await this.flushPendingCandidates();
       } else if (type === 'candidate') {
-        const candObj = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+        let candObj = rawPayload;
+        if (typeof rawPayload === 'string') {
+          try {
+            candObj = JSON.parse(rawPayload);
+          } catch {
+            candObj = null;
+          }
+        }
         if (!candObj) return;
 
         const candidateStr = candObj.candidate ?? candObj.Candidate;
@@ -548,7 +702,23 @@ export class WebRtcService {
           }
         }
       } else if (type === 'command') {
-        const cmd = rawPayload;
+        const cmd = typeof rawPayload === 'string' ? (() => { try { return JSON.parse(rawPayload); } catch { return rawPayload; } })() : rawPayload;
+        if (cmd?.type === 'request-offer') {
+          if (this.isHostRole && this.localOffer) {
+            console.log('[WebRTC Host] Received request-offer from controller, re-transmitting offer now...');
+            signalRService.sendSignal({
+              sessionId: this.sessionId || message.sessionId || message.SessionId,
+              senderDeviceId: this.currentDeviceId,
+              targetDeviceId: this.targetDeviceId || message.senderDeviceId || message.SenderDeviceId,
+              type: 'offer',
+              payload: {
+                type: this.localOffer.type,
+                sdp: this.localOffer.sdp
+              }
+            });
+          }
+          return;
+        }
         if (cmd?.type === 'switch-screen') {
           this.switchScreenSource(cmd.sourceId);
         } else if (cmd?.type === 'request-screens') {
@@ -566,12 +736,15 @@ export class WebRtcService {
           console.log('[WebRTC Controller] Host switched screen to:', cmd.activeSourceId);
           this.currentSourceId = cmd.activeSourceId;
           this.onHostScreenSwitched?.(cmd.activeSourceId);
+        } else if (cmd?.type === 'host-cursor') {
+          this.onHostCursorPositionReceived?.({ x: cmd.x, y: cmd.y });
         } else if (cmd?.type === 'switch-sides') {
           this.onSwitchSidesRequested?.();
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[WebRTC] Error handling signal:', err);
+      this.onDetailedStatus?.(`WebRTC signal error: ${err?.message || err}`);
     }
   }
 
@@ -718,11 +891,14 @@ export class WebRtcService {
     }
   }
 
-  private closeExistingPeerConnection() {
+  private closeExistingPeerConnection(streamToKeep?: MediaStream) {
     this.stopStatsMonitoring();
     this.stopVirtualDisplay();
+    this.stopOfferRetransmit();
+    this.stopRequestOfferInterval();
+    this.localOffer = null;
 
-    if (this.localStream) {
+    if (this.localStream && this.localStream !== streamToKeep) {
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
@@ -743,6 +919,9 @@ export class WebRtcService {
 
   public cleanUp() {
     this.closeExistingPeerConnection();
+    this.stopOfferRetransmit();
+    this.stopRequestOfferInterval();
+    this.localOffer = null;
     this.pendingSignals = [];
     this.pendingCandidates = [];
     this.sessionId = '';

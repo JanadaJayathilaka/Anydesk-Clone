@@ -96,20 +96,43 @@ export class SignalRService {
       this.startHeartbeat();
     });
 
-    this.hubConnection.on('SessionIncoming', (data) => {
-      this.onSessionIncoming?.(data);
+    this.hubConnection.on('SessionIncoming', (data: any) => {
+      const normalized = {
+        sessionId: data?.sessionId || data?.SessionId,
+        controllerDeviceId: data?.controllerDeviceId || data?.ControllerDeviceId,
+        controllerName: data?.controllerName || data?.ControllerName || 'Remote Controller',
+        createdAt: data?.createdAt || data?.CreatedAt || new Date().toISOString()
+      };
+      this.onSessionIncoming?.(normalized);
     });
 
-    this.hubConnection.on('SessionApproved', (data) => {
-      this.onSessionApproved?.(data);
+    this.hubConnection.on('SessionApproved', (data: any) => {
+      const normalized = {
+        sessionId: data?.sessionId || data?.SessionId,
+        hostDeviceId: data?.hostDeviceId || data?.HostDeviceId,
+        permissions: data?.permissions || data?.Permissions || {
+          allowControl: true,
+          allowMouse: true,
+          allowKeyboard: true,
+          allowClipboard: true,
+          allowAudio: false
+        },
+        startedAt: data?.startedAt || data?.StartedAt || new Date().toISOString()
+      };
+      this.onSessionApproved?.(normalized);
     });
 
-    this.hubConnection.on('SessionRejected', (data) => {
-      this.onSessionRejected?.(data);
+    this.hubConnection.on('SessionRejected', (data: any) => {
+      this.onSessionRejected?.({
+        sessionId: data?.sessionId || data?.SessionId,
+        reason: data?.reason || data?.Reason || 'Host declined request'
+      });
     });
 
-    this.hubConnection.on('SessionEnded', (data) => {
-      this.onSessionEnded?.(data);
+    this.hubConnection.on('SessionEnded', (data: any) => {
+      this.onSessionEnded?.({
+        sessionId: data?.sessionId || data?.SessionId
+      });
     });
 
     this.hubConnection.on('ReceiveSignal', (message: SignalMessage) => {
@@ -120,6 +143,17 @@ export class SignalRService {
     this.hubConnection.on('ReceiveInput', (inputEvent: RemoteInputEvent) => {
       this.onReceiveInput?.(inputEvent);
     });
+  }
+
+  public async registerDevice(deviceId: string, deviceName: string) {
+    if (!this.hubConnection || !this.isConnected()) return;
+    try {
+      this.currentDeviceId = deviceId;
+      await this.hubConnection.invoke('RegisterDevice', deviceId, deviceName);
+      console.log(`[SignalR] Device registered: ${deviceId} (${deviceName})`);
+    } catch (e) {
+      console.warn('[SignalR] registerDevice error:', e);
+    }
   }
 
   private startHeartbeat() {

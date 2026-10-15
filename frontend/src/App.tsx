@@ -218,11 +218,19 @@ export const App: React.FC = () => {
   const remoteIdRef = useRef(remoteId);
   remoteIdRef.current = remoteId;
 
+  const activePeerIdRef = useRef(activePeerId);
+  activePeerIdRef.current = activePeerId;
+
+  const connectionStatusRef = useRef(connectionStatus);
+  connectionStatusRef.current = connectionStatus;
+
   const screenSourcesRef = useRef(screenSources);
   screenSourcesRef.current = screenSources;
 
   const selectedSourceIdRef = useRef(selectedSourceId);
   selectedSourceIdRef.current = selectedSourceId;
+
+  const sessionApprovedHandled = useRef<string | null>(null);
 
   // Initialize SignalR & WebRTC listeners with auto-retry while backend boots
   const connectSignalR = useCallback(async (maxAttempts?: number, delayMs = 1000) => {
@@ -260,6 +268,54 @@ export const App: React.FC = () => {
     setIsRetryingSignalR(false);
     return false;
   }, []);
+
+  const saveRecentSession = useCallback((targetId: string) => {
+    setRecentSessions((prev) => {
+      const filtered = prev.filter((s) => s.deviceId !== targetId);
+      const updated = [
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          deviceId: targetId,
+          alias: `Remote PC (${targetId.slice(-3)})`,
+          timestamp: Date.now()
+        },
+        ...filtered
+      ].slice(0, 8);
+      localStorage.setItem(STORAGE_KEY_RECENTS, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  const handleSessionApproved = useCallback(async (data: any) => {
+    console.log('[App] Processing Session Approved:', data);
+    const sid = data?.sessionId || data?.SessionId || activeSessionIdRef.current;
+    const partnerId = data?.hostDeviceId || data?.HostDeviceId || activePeerIdRef.current || remoteIdRef.current;
+    if (!sid) {
+      console.warn('[App] SessionApproved received without sessionId:', data);
+      return;
+    }
+
+    if (sessionApprovedHandled.current === sid) {
+      console.log('[App] SessionApproved already handled for sid:', sid);
+      return;
+    }
+    sessionApprovedHandled.current = sid;
+    activeSessionIdRef.current = sid;
+    isHostRef.current = false;
+
+    setStatusMessage('Connection approved! Negotiating WebRTC peer connection...');
+    setConnectionStatus('connected');
+    setActiveSessionId(sid);
+    setIsHost(false);
+
+    if (partnerId) {
+      setActivePeerId(partnerId);
+      activePeerIdRef.current = partnerId;
+      saveRecentSession(partnerId);
+    }
+
+    await webRtcService.startControllerSession(sid, deviceIdRef.current, partnerId);
+  }, [saveRecentSession]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -305,19 +361,14 @@ export const App: React.FC = () => {
       });
     };
 
-    signalRService.onSessionApproved = async (data) => {
-      setStatusMessage('Connection approved! Negotiating WebRTC peer connection...');
-      setConnectionStatus('connected');
-      setActiveSessionId(data.sessionId);
-      setIsHost(false);
+    signalRService.onSessionApproved = handleSessionApproved;
 
-      // Start controller WebRTC session
-      const partnerId = data.hostDeviceId || remoteIdRef.current;
-      setActivePeerId(partnerId);
-      await webRtcService.startControllerSession(data.sessionId, deviceIdRef.current, partnerId);
-
-      // Save to recent sessions
-      saveRecentSession(partnerId);
+    webRtcService.onHostApprovedSignalReceived = (sid, partnerId) => {
+      if (sessionApprovedHandled.current === sid && activeSessionIdRef.current === sid) return;
+      if (connectionStatusRef.current === 'waiting_approval' || connectionStatusRef.current === 'connecting') {
+        console.log('[App] Detected incoming host WebRTC signal while waiting for approval, transitioning to connected!');
+        handleSessionApproved({ sessionId: sid, hostDeviceId: partnerId });
+      }
     };
 
     signalRService.onSessionRejected = (data) => {
@@ -357,29 +408,6 @@ export const App: React.FC = () => {
       }
     };
 
-    webRtcService.onSwitchSidesRequested = async () => {
-      if (isHostRef.current) {
-        setIsHost(false);
-        setRemoteStream(null);
-        setConnectionDetailStatus('Partner switched sides and is now presenting desktop...');
-      } else {
-        try {
-          const stream = await webRtcService.acquireScreenStream();
-          setIsHost(true);
-          setRemoteStream(stream);
-          if (activeSessionIdRef.current) {
-            await webRtcService.startHostSessionWithStream(
-              activeSessionIdRef.current,
-              deviceIdRef.current,
-              remoteIdRef.current,
-              stream
-            );
-          }
-        } catch (e) {
-          console.warn('Error accepting switch sides:', e);
-        }
-      }
-    };
 
     webRtcService.onDetailedStatus = (status) => {
       setConnectionDetailStatus(status);
@@ -416,27 +444,11 @@ export const App: React.FC = () => {
 
     return () => {
       isCancelled = true;
+      window.electronAPI?.stopCursorBroadcast?.();
       signalRService.disconnect();
       webRtcService.cleanUp();
     };
-  }, [connectSignalR]);
-
-  const saveRecentSession = (targetId: string) => {
-    setRecentSessions((prev) => {
-      const filtered = prev.filter((s) => s.deviceId !== targetId);
-      const updated = [
-        {
-          id: Math.random().toString(36).substring(2, 9),
-          deviceId: targetId,
-          alias: `Remote PC (${targetId.slice(-3)})`,
-          timestamp: Date.now()
-        },
-        ...filtered
-      ].slice(0, 8);
-      localStorage.setItem(STORAGE_KEY_RECENTS, JSON.stringify(updated));
-      return updated;
-    });
-  };
+  }, [connectSignalR, handleSessionApproved]);
 
   // Self-Session / Loopback mode for instant 1-machine testing
   const startSelfSession = async () => {
@@ -455,6 +467,7 @@ export const App: React.FC = () => {
       setActivePeerId(deviceId);
       setIsHost(false);
       setRemoteStream(stream);
+      window.electronAPI?.startCursorBroadcast?.();
       setConnectionStatus('connected');
       setStatusMessage('');
     } catch (e: any) {
@@ -475,9 +488,50 @@ export const App: React.FC = () => {
     setActivePeerId(targetId);
 
     try {
-      await signalRService.requestSession(targetId, deviceId, deviceName);
+      await signalRService.registerDevice(deviceId, deviceName);
+      const resp = await signalRService.requestSession(targetId, deviceId, deviceName);
+      const reqSessionId = (resp as any)?.sessionId || (resp as any)?.SessionId;
+      if (reqSessionId) {
+        setActiveSessionId(reqSessionId);
+      }
       setConnectionStatus('waiting_approval');
       setStatusMessage('Waiting for remote partner to accept request...');
+
+      // Fast polling fallback: check session state every 800ms while waiting for approval
+      if (reqSessionId) {
+        const pollApprovalTimer = setInterval(async () => {
+          if (connectionStatusRef.current !== 'waiting_approval' || sessionApprovedHandled.current === reqSessionId) {
+            clearInterval(pollApprovalTimer);
+            return;
+          }
+          try {
+            const res = await fetch(`${serverUrlRef.current.replace(/\/+$/, '')}/api/sessions/${reqSessionId}`);
+            if (res.ok) {
+              const sess = await res.json();
+              const state = (sess.state ?? sess.State ?? '').toString().toLowerCase();
+              // SessionState in C#: 0=Pending, 1=WaitingApproval, 2=Approved, 3=Active, 4=Rejected, 5=Ended
+              if (state === 'approved' || state === 'active' || state === '2' || state === '3') {
+                clearInterval(pollApprovalTimer);
+                if (connectionStatusRef.current === 'waiting_approval' && sessionApprovedHandled.current !== reqSessionId) {
+                  console.log('[App] Session approval detected via polling fallback!');
+                  handleSessionApproved({
+                    sessionId: reqSessionId,
+                    hostDeviceId: targetId
+                  });
+                }
+              } else if (state === 'rejected' || state === 'ended' || state === '4' || state === '5') {
+                clearInterval(pollApprovalTimer);
+                setConnectionStatus('rejected');
+                setStatusMessage('Remote host rejected the connection request.');
+                setTimeout(() => {
+                  setConnectionStatus('ready');
+                  setStatusMessage('');
+                }, 4000);
+              }
+            }
+          } catch {}
+        }, 800);
+      }
     } catch (err: any) {
       const rawMsg = err?.message || '';
       console.warn('Session request error:', rawMsg);
@@ -525,6 +579,11 @@ export const App: React.FC = () => {
     const req = incomingRequest;
     setIncomingRequest(null);
 
+    // Re-register device ID on hub to ensure current socket ConnectionId is up to date
+    try {
+      await signalRService.registerDevice(deviceId, deviceName);
+    } catch {}
+
     // 1. Acquire stream immediately while user click gesture is active
     let stream: MediaStream | null = null;
     try {
@@ -534,6 +593,9 @@ export const App: React.FC = () => {
       stream = webRtcService.createVirtualDisplayStream();
     }
 
+    activeSessionIdRef.current = req.sessionId;
+    isHostRef.current = true;
+    activePeerIdRef.current = req.controllerDeviceId;
     setActiveSessionId(req.sessionId);
     setActivePeerId(req.controllerDeviceId);
     setIsHost(true);
@@ -563,12 +625,17 @@ export const App: React.FC = () => {
     });
 
     // 3. Negotiate WebRTC with the acquired stream
-    await webRtcService.startHostSessionWithStream(
-      req.sessionId,
-      deviceId,
-      req.controllerDeviceId,
-      stream
-    );
+    try {
+      window.electronAPI?.startCursorBroadcast?.();
+      await webRtcService.startHostSessionWithStream(
+        req.sessionId,
+        deviceId,
+        req.controllerDeviceId,
+        stream
+      );
+    } catch (err) {
+      console.error('[App] Failed to start host WebRTC session:', err);
+    }
   };
 
   // Host rejects connection
@@ -584,6 +651,8 @@ export const App: React.FC = () => {
     if (activeSessionId && notifyPeer) {
       signalRService.endSession(activeSessionId);
     }
+    sessionApprovedHandled.current = null;
+    window.electronAPI?.stopCursorBroadcast?.();
     webRtcService.cleanUp();
     setActiveSessionId(null);
     setRemoteStream(null);
@@ -602,30 +671,6 @@ export const App: React.FC = () => {
     }
     setSelectedSourceId(newSourceId);
     webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
-  };
-
-  // Switch Sides without ending session
-  const handleSwitchSides = async () => {
-    if (isHost) {
-      // Host asks Controller to present
-      webRtcService.sendControlCommand({ type: 'switch-sides' });
-      setIsHost(false);
-      setRemoteStream(null);
-      setConnectionDetailStatus('Switched sides: Partner is now sharing screen...');
-    } else {
-      // Controller shares screen to Host
-      try {
-        const stream = await webRtcService.acquireScreenStream(selectedSourceId);
-        setIsHost(true);
-        setRemoteStream(stream);
-        webRtcService.sendControlCommand({ type: 'switch-sides' });
-        if (activeSessionId) {
-          await webRtcService.startHostSessionWithStream(activeSessionId, deviceId, activePeerId, stream);
-        }
-      } catch (err) {
-        console.warn('Switch sides error:', err);
-      }
-    }
   };
 
   // Input event sending
@@ -782,7 +827,6 @@ export const App: React.FC = () => {
           screenSources={isHost ? [] : (remoteHostScreens.length > 0 ? remoteHostScreens : screenSources)}
           selectedSourceId={selectedSourceId}
           onSelectSourceId={handleSwitchScreen}
-          onSwitchSides={handleSwitchSides}
           onSendInputEvent={handleSendInputEvent}
           onDisconnect={() => handleEndSession(true)}
         />

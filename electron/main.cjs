@@ -475,6 +475,41 @@ ipcMain.on('session:set-active-display', (event, sourceId) => {
   }
 });
 
+let cursorBroadcastActive = false;
+let lastHostCursor = { x: -1, y: -1 };
+let lastSimulatedInput = { x: -1, y: -1, time: 0 };
+
+ipcMain.on('session:start-cursor-broadcast', () => {
+  cursorBroadcastActive = true;
+});
+
+ipcMain.on('session:stop-cursor-broadcast', () => {
+  cursorBroadcastActive = false;
+});
+
+setInterval(() => {
+  if (!cursorBroadcastActive || !mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const pt = screen.getCursorScreenPoint();
+    const now = Date.now();
+    // If the cursor position matches the simulated input position within 150ms,
+    // this move was simulated from the remote user, not the host moving their physical mouse
+    const isSimulated = (now - lastSimulatedInput.time < 150) &&
+      Math.abs(pt.x - lastSimulatedInput.x) <= 4 &&
+      Math.abs(pt.y - lastSimulatedInput.y) <= 4;
+
+    if (!isSimulated) {
+      if (Math.abs(pt.x - lastHostCursor.x) >= 1 || Math.abs(pt.y - lastHostCursor.y) >= 1) {
+        lastHostCursor = pt;
+        const bounds = activeDisplayBounds || screen.getPrimaryDisplay().bounds;
+        const normX = Math.max(0, Math.min(1, (pt.x - bounds.x) / Math.max(1, bounds.width)));
+        const normY = Math.max(0, Math.min(1, (pt.y - bounds.y) / Math.max(1, bounds.height)));
+        mainWindow.webContents.send('host:cursor-position', { x: normX, y: normY });
+      }
+    }
+  } catch (e) {}
+}, 33);
+
 ipcMain.handle('system:get-info', () => {
   const allIps = getLocalNetworkIps();
   return {
@@ -555,6 +590,8 @@ ipcMain.on('system:simulate-input', (event, input) => {
       targetX = Math.max(0, Math.min(screenWidth - 1, Math.round(normX * screenWidth)));
       targetY = Math.max(0, Math.min(screenHeight - 1, Math.round(normY * screenHeight)));
     }
+
+    lastSimulatedInput = { x: targetX, y: targetY, time: Date.now() };
 
     const type = (input.type || input.Type || '').toLowerCase();
     const button = typeof input.button === 'number' ? input.button : (input.Button || 0);

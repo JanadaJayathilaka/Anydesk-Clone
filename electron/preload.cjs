@@ -18,5 +18,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.send('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   simulateInput: (inputEvent) => ipcRenderer.send('system:simulate-input', inputEvent),
-  setActiveDisplay: (sourceId) => ipcRenderer.send('session:set-active-display', sourceId)
+  setActiveDisplay: (sourceId) => ipcRenderer.send('session:set-active-display', sourceId),
+  startCursorBroadcast: () => ipcRenderer.send('session:start-cursor-broadcast'),
+  stopCursorBroadcast: () => ipcRenderer.send('session:stop-cursor-broadcast'),
+  onHostCursorPosition: (callback) => {
+    const handler = (event, pos) => callback(pos);
+    ipcRenderer.on('host:cursor-position', handler);
+    return () => ipcRenderer.removeListener('host:cursor-position', handler);
+  }
 });

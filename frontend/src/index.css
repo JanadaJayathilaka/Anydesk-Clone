@@ -683,98 +683,244 @@ input:checked + .toggle-slider:before {
   z-index: 200;
 }
 
-.viewer-toolbar {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(20, 24, 34, 0.88);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border-light);
-  border-radius: 9999px;
-  padding: 6px 16px;
+/* 100% Full-Width AnyDesk Header Bar (matching Image 2) */
+.anydesk-top-bar {
+  width: 100%;
+  height: 38px;
+  background: #11141c;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
   display: flex;
   align-items: center;
-  gap: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  justify-content: space-between;
+  padding: 0 12px;
   z-index: 250;
-  transition: opacity 0.3s;
+  user-select: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  flex-shrink: 0;
 }
 
-.viewer-toolbar:hover {
-  background: rgba(20, 24, 34, 0.98);
-}
-
-.toolbar-session-info {
+.anydesk-bar-left {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.anydesk-status-dot-active {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #00E676;
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.7);
+  flex-shrink: 0;
+}
+
+.anydesk-bar-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 0 2px;
+}
+
+.anydesk-monitor-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid #F59E0B;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.08);
+  flex-shrink: 0;
+}
+
+.anydesk-desk-id {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
-  padding-right: 12px;
-  border-right: 1px solid var(--border-color);
+  color: #f1f5f9;
+  letter-spacing: 0.5px;
 }
 
-.toolbar-stats-pill {
+.anydesk-pro-badge {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+  line-height: 12px;
+}
+
+.anydesk-session-timer {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.anydesk-bar-center {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
+  justify-content: center;
+}
+
+.anydesk-stats-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
   color: var(--text-muted);
-  padding-right: 12px;
-  border-right: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.stats-item {
+.anydesk-stats-pill .stat-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #00E676;
+}
+
+.anydesk-stats-pill .stat-sep {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.anydesk-bar-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-toolbar {
+.anydesk-icon-btn {
   background: transparent;
-  color: var(--text-secondary);
+  border: none;
+  color: #94a3b8;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.anydesk-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.anydesk-icon-btn.active {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.anydesk-icon-btn.active-green {
+  background: rgba(0, 230, 118, 0.15);
+  color: #00E676;
+}
+
+.anydesk-screen-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.anydesk-screen-indicator .screen-num {
+  position: absolute;
+  font-size: 7px;
+  font-weight: 800;
+  top: 1px;
+  color: #f1f5f9;
+}
+
+.anydesk-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #161a23;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  z-index: 300;
+  min-width: 190px;
+}
+
+.anydesk-dropdown-menu .dropdown-header {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.anydesk-dropdown-menu .dropdown-item {
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 5px;
   font-size: 12px;
   font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.btn-toolbar:hover {
-  background: var(--bg-card-hover);
-  color: #fff;
-}
-.btn-toolbar.active {
-  background: rgba(56, 189, 248, 0.15);
-  color: var(--color-blue);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  gap: 8px;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s ease;
 }
 
-.btn-disconnect-viewer {
-  background: var(--primary-red);
-  color: #fff;
-  padding: 6px 14px;
-  border-radius: 9999px;
-  font-size: 13px;
+.anydesk-dropdown-menu .dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.anydesk-dropdown-menu .dropdown-item.active {
+  background: rgba(0, 230, 118, 0.12);
+  color: #00E676;
+}
+
+.anydesk-dropdown-menu .dropdown-item.danger {
+  color: #ef4444;
+}
+
+.anydesk-dropdown-menu .dropdown-item.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.anydesk-end-session-btn {
+  background: #ef4444;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.btn-disconnect-viewer:hover {
-  background: var(--primary-red-hover);
+  gap: 5px;
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
 
+.anydesk-end-session-btn:hover {
+  background: #dc2626;
+}
+
+/* Screen Canvas / Video Area */
 .screen-canvas-wrapper {
   flex: 1;
   display: flex;
@@ -783,10 +929,15 @@ input:checked + .toggle-slider:before {
   overflow: hidden;
   background: #020408;
   cursor: default;
+  position: relative;
+  width: 100%;
+  height: calc(100% - 38px);
 }
 
-.screen-canvas-wrapper.interactive {
-  cursor: default;
+/* Use natural OS cursor when interacting */
+.screen-canvas-wrapper.interactive,
+.screen-canvas-wrapper.interactive * {
+  cursor: default !important;
 }
 
 .remote-video-element {
@@ -794,7 +945,60 @@ input:checked + .toggle-slider:before {
   max-height: 100%;
   object-fit: contain;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
-  cursor: default;
+}
+
+/* Dual Mouse Cursors System (Small Real Mouse Size, Green Color for User) */
+.video-cursor-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 250;
+  overflow: hidden;
+}
+
+.dual-mouse-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 250;
+  transform: translate(-1px, -1px);
+  will-change: left, top;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  transition: transform 0.02s linear;
+}
+
+.dual-mouse-cursor .cursor-arrow-svg {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
+  overflow: visible;
+}
+
+.dual-mouse-cursor .cursor-badge {
+  margin-left: 9px;
+  margin-top: -2px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  text-transform: uppercase;
+  line-height: 12px;
+  height: 12px;
+}
+
+.dual-mouse-cursor.host-cursor .cursor-badge {
+  background: #00D2FF;
+  color: #082f49;
+  border: 1px solid rgba(0, 210, 255, 0.4);
+}
+
+.dual-mouse-cursor.user-cursor .cursor-badge {
+  background: #00E676;
+  color: #022c22;
+  border: 1px solid rgba(0, 230, 118, 0.4);
 }
 
 /* Chat Drawer inside Viewer */

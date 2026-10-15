@@ -115,6 +115,9 @@ export interface ElectronAPI {
   isMaximized: () => Promise<boolean>;
   simulateInput?: (input: RemoteInputEvent) => void;
   setActiveDisplay?: (sourceId: string) => void;
+  startCursorBroadcast?: () => void;
+  stopCursorBroadcast?: () => void;
+  onHostCursorPosition?: (callback: (pos: { x: number; y: number }) => void) => () => void;
 }
 
 declare global {
