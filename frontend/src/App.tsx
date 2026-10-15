@@ -92,6 +92,7 @@ export const App: React.FC = () => {
     allowAudio: false
   });
   const [screenSources, setScreenSources] = useState<ElectronSource[]>([]);
+  const [remoteHostScreens, setRemoteHostScreens] = useState<ElectronSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string>('');
 
   // Remote connection input
@@ -171,9 +172,11 @@ export const App: React.FC = () => {
       }
 
       window.electronAPI.getScreenSources().then((sources) => {
-        setScreenSources(sources);
-        if (sources.length > 0) {
-          setSelectedSourceId(sources[0].id);
+        const screensOnly = sources.filter((s) => s.id.startsWith('screen'));
+        const available = screensOnly.length > 0 ? screensOnly : sources;
+        setScreenSources(available);
+        if (available.length > 0) {
+          setSelectedSourceId(available[0].id);
         }
       });
     }
@@ -214,6 +217,12 @@ export const App: React.FC = () => {
 
   const remoteIdRef = useRef(remoteId);
   remoteIdRef.current = remoteId;
+
+  const screenSourcesRef = useRef(screenSources);
+  screenSourcesRef.current = screenSources;
+
+  const selectedSourceIdRef = useRef(selectedSourceId);
+  selectedSourceIdRef.current = selectedSourceId;
 
   // Initialize SignalR & WebRTC listeners with auto-retry while backend boots
   const connectSignalR = useCallback(async (maxAttempts?: number, delayMs = 1000) => {
@@ -380,6 +389,31 @@ export const App: React.FC = () => {
       setPeerStats(stats);
     };
 
+    webRtcService.onHostScreensReceived = (screens, activeId) => {
+      console.log('[App] Received host screens from partner:', screens, activeId);
+      setRemoteHostScreens(screens);
+      if (activeId) {
+        setSelectedSourceId(activeId);
+      }
+    };
+
+    webRtcService.onHostScreenSwitched = (activeId) => {
+      console.log('[App] Host switched active screen to:', activeId);
+      setSelectedSourceId(activeId);
+    };
+
+    webRtcService.onControlChannelOpen = () => {
+      if (isHostRef.current) {
+        const screens: ElectronSource[] = screenSourcesRef.current.length > 0 ? screenSourcesRef.current : [
+          { id: 'screen:0:0', name: 'Primary Display 1', thumbnail: null },
+          { id: 'screen:1:0', name: 'Secondary Display 2', thumbnail: null }
+        ];
+        webRtcService.setHostScreensList(screens, selectedSourceIdRef.current || screens[0]?.id);
+      } else {
+        webRtcService.sendControlCommand({ type: 'request-screens' });
+      }
+    };
+
     return () => {
       isCancelled = true;
       signalRService.disconnect();
@@ -507,7 +541,26 @@ export const App: React.FC = () => {
     setRemoteStream(stream);
 
     // 2. Notify controller that request was approved
+    const screensToSend: ElectronSource[] = screenSources.length > 0 ? screenSources : [
+      { id: 'screen:0:0', name: 'Primary Display 1', thumbnail: null },
+      { id: 'screen:1:0', name: 'Secondary Display 2', thumbnail: null }
+    ];
+    webRtcService.setHostScreensList(screensToSend, selectedSourceId || screensToSend[0]?.id);
+
     await signalRService.respondSession(req.sessionId, true, approvedPermissions);
+
+    // Notify controller of host's available screens
+    await signalRService.sendSignal({
+      sessionId: req.sessionId,
+      senderDeviceId: deviceId,
+      targetDeviceId: req.controllerDeviceId,
+      type: 'command',
+      payload: {
+        type: 'host-screens-list',
+        screens: screensToSend,
+        activeSourceId: selectedSourceId || screensToSend[0]?.id
+      }
+    });
 
     // 3. Negotiate WebRTC with the acquired stream
     await webRtcService.startHostSessionWithStream(
@@ -536,18 +589,19 @@ export const App: React.FC = () => {
     setRemoteStream(null);
     setIsHost(false);
     setActivePeerId('');
+    setRemoteHostScreens([]);
     setConnectionStatus('ready');
     setStatusMessage('');
   };
 
-  // Switch Screen without ending session
+  // Switch Screen without ending session - Host cannot change screens, only the other PC (controller) can!
   const handleSwitchScreen = async (newSourceId: string) => {
-    setSelectedSourceId(newSourceId);
     if (isHost) {
-      await webRtcService.switchScreenSource(newSourceId);
-    } else {
-      webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
+      console.warn('Host cannot change screens: only the other PC can change screens.');
+      return;
     }
+    setSelectedSourceId(newSourceId);
+    webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
   };
 
   // Switch Sides without ending session
@@ -647,9 +701,9 @@ export const App: React.FC = () => {
               serverUrl={serverUrl}
               permissions={permissions}
               onUpdatePermissions={setPermissions}
-              screenSources={screenSources}
+              screenSources={[]}
               selectedSourceId={selectedSourceId}
-              onSelectSourceId={setSelectedSourceId}
+              onSelectSourceId={() => {}}
             />
 
             {/* Remote Desk Card */}
@@ -725,7 +779,7 @@ export const App: React.FC = () => {
           isHost={isHost}
           stats={peerStats}
           connectionDetailStatus={connectionDetailStatus}
-          screenSources={screenSources}
+          screenSources={isHost ? [] : (remoteHostScreens.length > 0 ? remoteHostScreens : screenSources)}
           selectedSourceId={selectedSourceId}
           onSelectSourceId={handleSwitchScreen}
           onSwitchSides={handleSwitchSides}

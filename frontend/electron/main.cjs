@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, Menu, screen } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -426,8 +426,9 @@ ipcMain.handle('backend:info', async () => {
 
 ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
   try {
+    const types = (opts && opts.types) ? opts.types : ['screen'];
     const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
+      types: types,
       thumbnailSize: { width: 320, height: 180 },
       fetchWindowIcons: true
     });
@@ -441,6 +442,36 @@ ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
   } catch (err) {
     console.error('Error fetching screen sources:', err);
     return [];
+  }
+});
+
+let activeDisplayBounds = null;
+
+ipcMain.on('session:set-active-display', (event, sourceId) => {
+  try {
+    if (!sourceId) {
+      activeDisplayBounds = null;
+      return;
+    }
+    const displays = screen.getAllDisplays();
+    let matchedDisplay = displays.find((d) => sourceId.includes(d.id.toString()));
+    if (!matchedDisplay) {
+      const parts = sourceId.split(':');
+      if (parts.length >= 2) {
+        const idx = parseInt(parts[1], 10);
+        if (!isNaN(idx) && displays[idx]) {
+          matchedDisplay = displays[idx];
+        }
+      }
+    }
+    if (matchedDisplay) {
+      activeDisplayBounds = matchedDisplay.bounds;
+      console.log('[NativeInput] Set active display bounds:', activeDisplayBounds);
+    } else {
+      activeDisplayBounds = null;
+    }
+  } catch (e) {
+    console.warn('[NativeInput] Error setting active display:', e);
   }
 });
 
@@ -509,13 +540,21 @@ ipcMain.on('system:simulate-input', (event, input) => {
   if (!win32Input || !input) return;
 
   try {
-    const screenWidth = win32Input.GetSystemMetrics(0) || 1920;
-    const screenHeight = win32Input.GetSystemMetrics(1) || 1080;
-
     const normX = typeof input.normalizedX === 'number' ? input.normalizedX : (input.NormalizedX || 0);
     const normY = typeof input.normalizedY === 'number' ? input.normalizedY : (input.NormalizedY || 0);
-    const targetX = Math.max(0, Math.min(screenWidth - 1, Math.round(normX * screenWidth)));
-    const targetY = Math.max(0, Math.min(screenHeight - 1, Math.round(normY * screenHeight)));
+
+    let targetX, targetY, screenWidth, screenHeight;
+    if (activeDisplayBounds) {
+      screenWidth = activeDisplayBounds.width;
+      screenHeight = activeDisplayBounds.height;
+      targetX = Math.round(activeDisplayBounds.x + normX * activeDisplayBounds.width);
+      targetY = Math.round(activeDisplayBounds.y + normY * activeDisplayBounds.height);
+    } else {
+      screenWidth = win32Input.GetSystemMetrics(0) || 1920;
+      screenHeight = win32Input.GetSystemMetrics(1) || 1080;
+      targetX = Math.max(0, Math.min(screenWidth - 1, Math.round(normX * screenWidth)));
+      targetY = Math.max(0, Math.min(screenHeight - 1, Math.round(normY * screenHeight)));
+    }
 
     const type = (input.type || input.Type || '').toLowerCase();
     const button = typeof input.button === 'number' ? input.button : (input.Button || 0);

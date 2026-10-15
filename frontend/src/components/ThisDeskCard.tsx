@@ -9,9 +9,9 @@ interface ThisDeskCardProps {
   serverUrl: string;
   permissions: SessionPermissions;
   onUpdatePermissions: (newPerms: SessionPermissions) => void;
-  screenSources: ElectronSource[];
-  selectedSourceId: string;
-  onSelectSourceId: (id: string) => void;
+  screenSources?: ElectronSource[];
+  selectedSourceId?: string;
+  onSelectSourceId?: (id: string) => void;
 }
 
 export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
@@ -20,10 +20,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
   localIp,
   serverUrl,
   permissions,
-  onUpdatePermissions,
-  screenSources,
-  selectedSourceId,
-  onSelectSourceId
+  onUpdatePermissions
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -119,32 +116,6 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
         </div>
       </div>
 
-      {screenSources.length > 1 && (
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-            Display to Share:
-          </label>
-          <select
-            value={selectedSourceId}
-            onChange={(e) => onSelectSourceId(e.target.value)}
-            style={{
-              width: '100%',
-              background: 'var(--bg-input)',
-              color: '#fff',
-              border: '1px solid var(--border-color)',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              fontSize: '13px'
-            }}
-          >
-            {screenSources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div className="host-permissions-group">
         <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>

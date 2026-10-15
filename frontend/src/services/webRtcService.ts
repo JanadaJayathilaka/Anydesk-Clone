@@ -1,4 +1,4 @@
-import type { PeerStats, RemoteInputEvent, SignalMessage } from '../types';
+import type { PeerStats, RemoteInputEvent, SignalMessage, ElectronSource } from '../types';
 import { signalRService } from './signalRService';
 
 export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -22,6 +22,10 @@ export class WebRtcService {
   private currentDeviceId: string = '';
   private targetDeviceId: string = '';
 
+  private isHostRole: boolean = false;
+  private hostScreensList: ElectronSource[] = [];
+  private currentSourceId: string = '';
+
   private pendingSignals: any[] = [];
   private pendingCandidates: RTCIceCandidateInit[] = [];
 
@@ -31,6 +35,25 @@ export class WebRtcService {
   public onDetailedStatus: ((status: string) => void) | null = null;
   public onStatsUpdate: ((stats: PeerStats) => void) | null = null;
   public onSwitchSidesRequested: (() => void) | null = null;
+  public onHostScreensReceived: ((screens: ElectronSource[], activeSourceId?: string) => void) | null = null;
+  public onHostScreenSwitched: ((activeSourceId: string) => void) | null = null;
+  public onControlChannelOpen: (() => void) | null = null;
+
+  public setHostScreensList(screens: ElectronSource[], activeSourceId?: string) {
+    this.hostScreensList = screens;
+    if (activeSourceId) {
+      this.currentSourceId = activeSourceId;
+    }
+    this.sendControlCommand({
+      type: 'host-screens-list',
+      screens: this.hostScreensList,
+      activeSourceId: this.currentSourceId
+    });
+  }
+
+  public getHostScreensList(): ElectronSource[] {
+    return this.hostScreensList;
+  }
 
   public async acquireScreenStream(sourceId?: string): Promise<MediaStream> {
     try {
@@ -188,6 +211,7 @@ export class WebRtcService {
     stream: MediaStream
   ): Promise<void> {
     console.log('[WebRTC] Starting Host session with stream for session:', sessionId);
+    this.isHostRole = true;
     this.closeExistingPeerConnection();
     this.sessionId = sessionId;
     this.currentDeviceId = hostDeviceId;
@@ -239,6 +263,7 @@ export class WebRtcService {
     hostDeviceId: string
   ): Promise<void> {
     console.log('[WebRTC] Starting Controller session for session:', sessionId);
+    this.isHostRole = false;
     this.onDetailedStatus?.('Waiting for host screen feed offer...');
     this.closeExistingPeerConnection();
     this.sessionId = sessionId;
@@ -362,13 +387,48 @@ export class WebRtcService {
 
   private setupControlChannel(channel: RTCDataChannel) {
     this.controlChannel = channel;
-    channel.onopen = () => console.log('[WebRTC] Control channel is OPEN');
+    channel.onopen = () => {
+      console.log('[WebRTC] Control channel is OPEN');
+      if (this.isHostRole && this.hostScreensList.length > 0) {
+        try {
+          channel.send(JSON.stringify({
+            type: 'host-screens-list',
+            screens: this.hostScreensList,
+            activeSourceId: this.currentSourceId
+          }));
+        } catch (e) {}
+      }
+      this.onControlChannelOpen?.();
+    };
     channel.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'switch-screen') {
           console.log('[WebRTC Host] Received switch-screen command:', data.sourceId);
           this.switchScreenSource(data.sourceId);
+          return;
+        }
+        if (data.type === 'request-screens') {
+          if (this.isHostRole && this.hostScreensList.length > 0) {
+            try {
+              channel.send(JSON.stringify({
+                type: 'host-screens-list',
+                screens: this.hostScreensList,
+                activeSourceId: this.currentSourceId
+              }));
+            } catch (e) {}
+          }
+          return;
+        }
+        if (data.type === 'host-screens-list') {
+          console.log('[WebRTC Controller] Received host-screens-list:', data.screens, data.activeSourceId);
+          this.onHostScreensReceived?.(data.screens, data.activeSourceId);
+          return;
+        }
+        if (data.type === 'host-screen-switched') {
+          console.log('[WebRTC Controller] Host switched screen to:', data.activeSourceId);
+          this.currentSourceId = data.activeSourceId;
+          this.onHostScreenSwitched?.(data.activeSourceId);
           return;
         }
         if (data.type === 'switch-sides') {
@@ -491,6 +551,21 @@ export class WebRtcService {
         const cmd = rawPayload;
         if (cmd?.type === 'switch-screen') {
           this.switchScreenSource(cmd.sourceId);
+        } else if (cmd?.type === 'request-screens') {
+          if (this.isHostRole && this.hostScreensList.length > 0) {
+            this.sendControlCommand({
+              type: 'host-screens-list',
+              screens: this.hostScreensList,
+              activeSourceId: this.currentSourceId
+            });
+          }
+        } else if (cmd?.type === 'host-screens-list') {
+          console.log('[WebRTC Controller] Received host-screens-list via signal:', cmd.screens, cmd.activeSourceId);
+          this.onHostScreensReceived?.(cmd.screens, cmd.activeSourceId);
+        } else if (cmd?.type === 'host-screen-switched') {
+          console.log('[WebRTC Controller] Host switched screen to:', cmd.activeSourceId);
+          this.currentSourceId = cmd.activeSourceId;
+          this.onHostScreenSwitched?.(cmd.activeSourceId);
         } else if (cmd?.type === 'switch-sides') {
           this.onSwitchSidesRequested?.();
         }
@@ -575,7 +650,20 @@ export class WebRtcService {
         console.log('[WebRTC] Successfully replaced screen video track with replaceTrack!');
       }
 
+      this.currentSourceId = newSourceId || '';
       this.onRemoteStreamReceived?.(newStream);
+
+      // Tell Electron on Host to update active display for mouse coordinates
+      if (window.electronAPI?.setActiveDisplay && newSourceId) {
+        window.electronAPI.setActiveDisplay(newSourceId);
+      }
+
+      // Notify controller that the host has completed switching screen
+      this.sendControlCommand({
+        type: 'host-screen-switched',
+        activeSourceId: newSourceId
+      });
+
       return true;
     } catch (err) {
       console.error('[WebRTC] Error switching screen source:', err);
@@ -659,6 +747,9 @@ export class WebRtcService {
     this.pendingCandidates = [];
     this.sessionId = '';
     this.targetDeviceId = '';
+    this.isHostRole = false;
+    this.hostScreensList = [];
+    this.currentSourceId = '';
   }
 }
 

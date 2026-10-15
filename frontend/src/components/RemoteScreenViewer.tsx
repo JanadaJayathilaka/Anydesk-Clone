@@ -320,87 +320,89 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             </button>
           )}
 
-          {/* Screen / Monitor Switcher on the fly */}
-          <div style={{ position: 'relative' }}>
-            <button
-              className={`btn-toolbar ${showScreenMenu ? 'active' : ''}`}
-              onClick={() => setShowScreenMenu(!showScreenMenu)}
-              title="Switch Screen / Monitor without ending session"
-            >
-              <Monitor size={14} />
-              <span>Screens</span>
-              <ChevronDown size={12} style={{ opacity: 0.7 }} />
-            </button>
-
-            {showScreenMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  marginTop: '8px',
-                  left: 0,
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: '8px',
-                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-                  padding: '6px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
-                  zIndex: 300,
-                  minWidth: '220px'
-                }}
+          {/* Screen / Monitor Switcher on the fly - Only the other PC (controller) can switch screens */}
+          {!isHost && (
+            <div style={{ position: 'relative' }}>
+              <button
+                className={`btn-toolbar ${showScreenMenu ? 'active' : ''}`}
+                onClick={() => setShowScreenMenu(!showScreenMenu)}
+                title="Switch Remote Screen / Monitor"
               >
-                <div style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Select Display / Window
-                </div>
+                <Monitor size={14} />
+                <span>Screens</span>
+                <ChevronDown size={12} style={{ opacity: 0.7 }} />
+              </button>
 
-                {screenSources.length > 0 ? (
-                  screenSources.map((source) => {
-                    const isSelected = selectedSourceId === source.id;
-                    return (
+              {showScreenMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    marginTop: '8px',
+                    left: 0,
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '8px',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    zIndex: 300,
+                    minWidth: '220px'
+                  }}
+                >
+                  <div style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+                    Select Remote Display
+                  </div>
+
+                  {screenSources.length > 0 ? (
+                    screenSources.map((source, index) => {
+                      const isSelected = selectedSourceId === source.id || (!selectedSourceId && index === 0);
+                      return (
+                        <button
+                          key={source.id || index}
+                          className={`btn-toolbar ${isSelected ? 'active' : ''}`}
+                          style={{
+                            width: '100%',
+                            justifyContent: 'flex-start',
+                            padding: '8px 10px',
+                            gap: '8px'
+                          }}
+                          onClick={() => handleSwitchScreenChoice(source.id)}
+                        >
+                          <Monitor size={14} color={isSelected ? 'var(--primary-red)' : 'var(--text-muted)'} />
+                          <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {source.name || `Screen ${index + 1}`}
+                          </span>
+                          {isSelected && <Check size={13} color="var(--primary-red)" />}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <>
                       <button
-                        key={source.id}
-                        className={`btn-toolbar ${isSelected ? 'active' : ''}`}
-                        style={{
-                          width: '100%',
-                          justifyContent: 'flex-start',
-                          padding: '8px 10px',
-                          gap: '8px'
-                        }}
-                        onClick={() => handleSwitchScreenChoice(source.id)}
+                        className="btn-toolbar"
+                        style={{ width: '100%', justifyContent: 'flex-start' }}
+                        onClick={() => handleSwitchScreenChoice('screen:0:0')}
                       >
-                        <Monitor size={14} color={isSelected ? 'var(--primary-red)' : 'var(--text-muted)'} />
-                        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {source.name}
-                        </span>
-                        {isSelected && <Check size={13} color="var(--primary-red)" />}
+                        <Monitor size={14} />
+                        <span>Primary Display 1</span>
                       </button>
-                    );
-                  })
-                ) : (
-                  <>
-                    <button
-                      className="btn-toolbar"
-                      style={{ width: '100%', justifyContent: 'flex-start' }}
-                      onClick={() => handleSwitchScreenChoice('screen:0:0')}
-                    >
-                      <Monitor size={14} />
-                      <span>Primary Display 1</span>
-                    </button>
-                    <button
-                      className="btn-toolbar"
-                      style={{ width: '100%', justifyContent: 'flex-start' }}
-                      onClick={() => handleSwitchScreenChoice('screen:1:0')}
-                    >
-                      <Monitor size={14} />
-                      <span>Secondary Display 2</span>
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+                      <button
+                        className="btn-toolbar"
+                        style={{ width: '100%', justifyContent: 'flex-start' }}
+                        onClick={() => handleSwitchScreenChoice('screen:1:0')}
+                      >
+                        <Monitor size={14} />
+                        <span>Secondary Display 2</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Switch Sides (Swap Roles) */}
           {onSwitchSides && (
@@ -424,67 +426,69 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             <span>{displayMode === 'contain' ? 'Fit' : '100%'}</span>
           </button>
 
-          {/* Special System Keys */}
-          <div style={{ position: 'relative' }}>
-            <button
-              className={`btn-toolbar ${showSpecialKeys ? 'active' : ''}`}
-              onClick={() => setShowSpecialKeys(!showSpecialKeys)}
-              title="Send Special System Keys to Remote Desktop"
-            >
-              <Keyboard size={14} />
-              <span>Keys</span>
-            </button>
-
-            {showSpecialKeys && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  marginTop: '8px',
-                  left: 0,
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: '8px',
-                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-                  padding: '6px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
-                  zIndex: 300,
-                  minWidth: '150px'
-                }}
+          {/* Special System Keys - Only for controller */}
+          {!isHost && (
+            <div style={{ position: 'relative' }}>
+              <button
+                className={`btn-toolbar ${showSpecialKeys ? 'active' : ''}`}
+                onClick={() => setShowSpecialKeys(!showSpecialKeys)}
+                title="Send Special System Keys to Remote Desktop"
               >
-                <button
-                  className="btn-toolbar"
-                  style={{ width: '100%', justifyContent: 'flex-start' }}
-                  onClick={() => handleSendSpecialKey('win')}
+                <Keyboard size={14} />
+                <span>Keys</span>
+              </button>
+
+              {showSpecialKeys && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    marginTop: '8px',
+                    left: 0,
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '8px',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    zIndex: 300,
+                    minWidth: '150px'
+                  }}
                 >
-                  <span>Windows Key</span>
-                </button>
-                <button
-                  className="btn-toolbar"
-                  style={{ width: '100%', justifyContent: 'flex-start' }}
-                  onClick={() => handleSendSpecialKey('alttab')}
-                >
-                  <span>Alt + Tab</span>
-                </button>
-                <button
-                  className="btn-toolbar"
-                  style={{ width: '100%', justifyContent: 'flex-start' }}
-                  onClick={() => handleSendSpecialKey('escape')}
-                >
-                  <span>Escape</span>
-                </button>
-                <button
-                  className="btn-toolbar"
-                  style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--primary-red)' }}
-                  onClick={() => handleSendSpecialKey('ctrlaltdel')}
-                >
-                  <span>Ctrl + Alt + Del</span>
-                </button>
-              </div>
-            )}
-          </div>
+                  <button
+                    className="btn-toolbar"
+                    style={{ width: '100%', justifyContent: 'flex-start' }}
+                    onClick={() => handleSendSpecialKey('win')}
+                  >
+                    <span>Windows Key</span>
+                  </button>
+                  <button
+                    className="btn-toolbar"
+                    style={{ width: '100%', justifyContent: 'flex-start' }}
+                    onClick={() => handleSendSpecialKey('alttab')}
+                  >
+                    <span>Alt + Tab</span>
+                  </button>
+                  <button
+                    className="btn-toolbar"
+                    style={{ width: '100%', justifyContent: 'flex-start' }}
+                    onClick={() => handleSendSpecialKey('escape')}
+                  >
+                    <span>Escape</span>
+                  </button>
+                  <button
+                    className="btn-toolbar"
+                    style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--primary-red)' }}
+                    onClick={() => handleSendSpecialKey('ctrlaltdel')}
+                  >
+                    <span>Ctrl + Alt + Del</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Disconnect / End Session */}
           <button
@@ -506,7 +510,7 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
         onContextMenu={(e) => isInteractive && e.preventDefault()}
-        style={{ position: 'relative', width: '100%', height: '100%' }}
+        style={{ position: 'relative', width: '100%', height: '100%', cursor: 'default' }}
       >
         {(!remoteStream || !isVideoPlaying) && (
           <div style={{
@@ -551,7 +555,8 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             objectFit: displayMode === 'contain' ? 'contain' : 'fill',
             width: '100%',
             height: '100%',
-            display: 'block'
+            display: 'block',
+            cursor: 'default'
           }}
         />
       </div>

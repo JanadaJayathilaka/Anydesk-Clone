@@ -30,7 +30,7 @@ export interface SignalMessage {
   sessionId: string;
   senderDeviceId: string;
   targetDeviceId: string;
-  type: 'offer' | 'answer' | 'candidate' | 'ping' | 'pong' | 'chat' | 'status';
+  type: 'offer' | 'answer' | 'candidate' | 'ping' | 'pong' | 'chat' | 'status' | 'command';
   payload: any;
 }
 
@@ -79,7 +79,7 @@ export interface ChatMessage {
 export interface ElectronSource {
   id: string;
   name: string;
-  thumbnail: string | null;
+  thumbnail?: string | null;
   display_id?: string;
 }
 
@@ -114,6 +114,7 @@ export interface ElectronAPI {
   close: () => void;
   isMaximized: () => Promise<boolean>;
   simulateInput?: (input: RemoteInputEvent) => void;
+  setActiveDisplay?: (sourceId: string) => void;
 }
 
 declare global {

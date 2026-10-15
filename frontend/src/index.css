@@ -786,7 +786,7 @@ input:checked + .toggle-slider:before {
 }
 
 .screen-canvas-wrapper.interactive {
-  cursor: crosshair;
+  cursor: default;
 }
 
 .remote-video-element {
@@ -794,6 +794,7 @@ input:checked + .toggle-slider:before {
   max-height: 100%;
   object-fit: contain;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+  cursor: default;
 }
 
 /* Chat Drawer inside Viewer */

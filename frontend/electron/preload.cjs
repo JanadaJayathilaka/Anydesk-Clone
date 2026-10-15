@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
-  simulateInput: (inputEvent) => ipcRenderer.send('system:simulate-input', inputEvent)
+  simulateInput: (inputEvent) => ipcRenderer.send('system:simulate-input', inputEvent),
+  setActiveDisplay: (sourceId) => ipcRenderer.send('session:set-active-display', sourceId)
 });
