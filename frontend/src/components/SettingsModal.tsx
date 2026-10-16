@@ -75,7 +75,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           }}
         >
           <span style={{ fontSize: '16px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Server size={18} color="var(--primary-red)" />
+            <Server size={18} color="var(--color-primary)" />
             <span>Settings & Diagnostics</span>
           </span>
           <button className="btn-icon-titlebar" onClick={onClose}>
@@ -254,13 +254,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   background:
                     testResult.status === 'success'
                       ? 'rgba(16, 185, 129, 0.15)'
-                      : 'rgba(239, 68, 68, 0.15)',
+                      : 'var(--color-primary-light)',
                   color:
-                    testResult.status === 'success' ? 'var(--color-green)' : 'var(--primary-red)',
+                    testResult.status === 'success' ? 'var(--color-green)' : 'var(--color-primary)',
                   border: `1px solid ${
                     testResult.status === 'success'
                       ? 'rgba(16, 185, 129, 0.3)'
-                      : 'rgba(239, 68, 68, 0.3)'
+                      : 'rgba(239, 68, 59, 0.3)'
                   }`
                 }}
               >

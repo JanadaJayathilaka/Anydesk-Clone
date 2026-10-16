@@ -74,9 +74,9 @@ export const IncomingSessionModal: React.FC<IncomingSessionModalProps> = ({
               type="checkbox"
               checked={permissions.allowMouse}
               onChange={() => togglePermission('allowMouse')}
-              style={{ width: '16px', height: '16px', accentColor: 'var(--primary-red)' }}
+              style={{ width: '16px', height: '16px', accentColor: 'var(--color-primary)' }}
             />
-            <MousePointer size={16} color="var(--color-blue)" />
+            <MousePointer size={16} color="var(--color-primary)" />
             <span>Control Mouse Cursor</span>
           </label>
 
@@ -85,9 +85,9 @@ export const IncomingSessionModal: React.FC<IncomingSessionModalProps> = ({
               type="checkbox"
               checked={permissions.allowKeyboard}
               onChange={() => togglePermission('allowKeyboard')}
-              style={{ width: '16px', height: '16px', accentColor: 'var(--primary-red)' }}
+              style={{ width: '16px', height: '16px', accentColor: 'var(--color-primary)' }}
             />
-            <Keyboard size={16} color="var(--color-blue)" />
+            <Keyboard size={16} color="var(--color-primary)" />
             <span>Transmit Keyboard Keystrokes</span>
           </label>
 
@@ -96,9 +96,9 @@ export const IncomingSessionModal: React.FC<IncomingSessionModalProps> = ({
               type="checkbox"
               checked={permissions.allowClipboard}
               onChange={() => togglePermission('allowClipboard')}
-              style={{ width: '16px', height: '16px', accentColor: 'var(--primary-red)' }}
+              style={{ width: '16px', height: '16px', accentColor: 'var(--color-primary)' }}
             />
-            <Clipboard size={16} color="var(--color-blue)" />
+            <Clipboard size={16} color="var(--color-primary)" />
             <span>Synchronize Clipboard</span>
           </label>
 
@@ -107,9 +107,9 @@ export const IncomingSessionModal: React.FC<IncomingSessionModalProps> = ({
               type="checkbox"
               checked={permissions.allowAudio}
               onChange={() => togglePermission('allowAudio')}
-              style={{ width: '16px', height: '16px', accentColor: 'var(--primary-red)' }}
+              style={{ width: '16px', height: '16px', accentColor: 'var(--color-primary)' }}
             />
-            <Volume2 size={16} color="var(--color-blue)" />
+            <Volume2 size={16} color="var(--color-primary)" />
             <span>Transmit Desktop Audio</span>
           </label>
         </div>

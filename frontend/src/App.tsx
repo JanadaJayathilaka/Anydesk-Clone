@@ -145,7 +145,7 @@ export const App: React.FC = () => {
             console.log('[App] Detected browser client LAN IP:', data.ip);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
 
     if (window.electronAPI?.isElectron) {
@@ -538,7 +538,7 @@ export const App: React.FC = () => {
                 }, 4000);
               }
             }
-          } catch {}
+          } catch { }
         }, 800);
       }
     } catch (err: any) {
@@ -591,7 +591,7 @@ export const App: React.FC = () => {
     // Re-register device ID on hub to ensure current socket ConnectionId is up to date
     try {
       await signalRService.registerDevice(deviceId, deviceName);
-    } catch {}
+    } catch { }
 
     // 1. Acquire stream immediately while user click gesture is active
     let stream: MediaStream | null = null;
@@ -621,7 +621,7 @@ export const App: React.FC = () => {
           screensToSend = scrs;
           setScreenSources(scrs);
         }
-      } catch {}
+      } catch { }
     }
     if (screensToSend.length === 0) {
       screensToSend = [
@@ -710,7 +710,7 @@ export const App: React.FC = () => {
           targetDeviceId: activePeerIdRef.current,
           type: 'command',
           payload: { type: 'switch-screen', sourceId: newSourceId }
-        }).catch(() => {});
+        }).catch(() => { });
       }
     }
   };
@@ -790,7 +790,7 @@ export const App: React.FC = () => {
               onUpdatePermissions={setPermissions}
               screenSources={[]}
               selectedSourceId={selectedSourceId}
-              onSelectSourceId={() => {}}
+              onSelectSourceId={() => { }}
             />
 
             {/* Remote Desk Card */}
@@ -813,7 +813,7 @@ export const App: React.FC = () => {
           </div>
 
           {/* Quick Testing Bar for Single-Machine Dev */}
-          <div
+          {/* <div
             style={{
               background: 'rgba(56, 189, 248, 0.08)',
               border: '1px solid rgba(56, 189, 248, 0.25)',
@@ -843,7 +843,7 @@ export const App: React.FC = () => {
             >
               + Open Second Partner Tab
             </button>
-          </div>
+          </div> */}
 
           {/* Recent Sessions */}
           <RecentSessions

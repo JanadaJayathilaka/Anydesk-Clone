@@ -17,8 +17,8 @@ interface ThisDeskCardProps {
 export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
   deviceId,
   deviceName,
-  localIp,
-  serverUrl,
+  localIp: _localIp,
+  serverUrl: _serverUrl,
   permissions,
   onUpdatePermissions
 }) => {
@@ -41,8 +41,6 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
       [key]: !permissions[key]
     });
   };
-
-  const isAwsHub = serverUrl.includes('18.188.166.170');
 
   return (
     <div className="card this-desk-card">
@@ -76,7 +74,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
       </div>
 
       {/* Connected Server Hub Status Badge */}
-      <div
+      {/* <div
         style={{
           marginTop: '12px',
           marginBottom: '14px',
@@ -114,7 +112,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
             <span style={{ color: 'var(--text-muted)' }}>Local IP: {localIp}</span>
           )}
         </div>
-      </div>
+      </div> */}
 
 
       <div className="host-permissions-group">
@@ -124,7 +122,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
 
         <div className="perm-label-row">
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <MousePointer size={14} color="var(--color-blue)" />
+            <MousePointer size={14} color="var(--color-primary)" />
             <span>Allow Mouse Control</span>
           </span>
           <label className="toggle-switch">
@@ -139,7 +137,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
 
         <div className="perm-label-row">
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Keyboard size={14} color="var(--color-blue)" />
+            <Keyboard size={14} color="var(--color-primary)" />
             <span>Allow Keyboard Input</span>
           </span>
           <label className="toggle-switch">
@@ -154,7 +152,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
 
         <div className="perm-label-row">
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Clipboard size={14} color="var(--color-blue)" />
+            <Clipboard size={14} color="var(--color-primary)" />
             <span>Allow Clipboard Sync</span>
           </span>
           <label className="toggle-switch">
@@ -169,7 +167,7 @@ export const ThisDeskCard: React.FC<ThisDeskCardProps> = ({
 
         <div className="perm-label-row">
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Volume2 size={14} color="var(--color-blue)" />
+            <Volume2 size={14} color="var(--color-primary)" />
             <span>Allow Audio Transmission</span>
           </span>
           <label className="toggle-switch">

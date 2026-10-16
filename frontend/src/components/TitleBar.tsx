@@ -7,7 +7,10 @@ interface TitleBarProps {
   onOpenSettings: () => void;
 }
 
-export const TitleBar: React.FC<TitleBarProps> = ({ status, onOpenSettings }) => {
+export const TitleBar: React.FC<TitleBarProps> = ({
+  status,
+  onOpenSettings
+}) => {
   const getStatusText = () => {
     switch (status) {
       case 'ready':

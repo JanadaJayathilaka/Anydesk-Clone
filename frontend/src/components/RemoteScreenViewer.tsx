@@ -535,13 +535,13 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
                 width: '24px',
                 height: '24px',
                 background: connectionDetailStatus?.toLowerCase().includes('fail')
-                  ? '#ef4444'
+                  ? 'var(--color-primary)'
                   : connectionStatus === 'waiting_approval'
                   ? '#38bdf8'
                   : '#f59e0b',
                 boxShadow: `0 0 16px ${
                   connectionDetailStatus?.toLowerCase().includes('fail')
-                    ? 'rgba(239, 68, 68, 0.5)'
+                    ? 'var(--primary-red-glow)'
                     : connectionStatus === 'waiting_approval'
                     ? 'rgba(56, 189, 248, 0.5)'
                     : 'rgba(245, 158, 11, 0.5)'
@@ -570,9 +570,9 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
                     background: 'rgba(56, 189, 248, 0.15)',
                     color: '#38bdf8',
                     border: '1px solid rgba(56, 189, 248, 0.3)',
-                    borderRadius: '8px',
+                    borderRadius: 'var(--radius-button)',
                     fontSize: '13px',
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -589,12 +589,12 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
                 onClick={onDisconnect}
                 style={{
                   padding: '8px 20px',
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  color: '#ef4444',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: '8px',
+                  background: 'var(--color-primary-light)',
+                  color: 'var(--color-primary)',
+                  border: '1px solid var(--color-primary)',
+                  borderRadius: 'var(--radius-button)',
                   fontSize: '13px',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',

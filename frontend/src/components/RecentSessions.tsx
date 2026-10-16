@@ -23,7 +23,7 @@ export const RecentSessions: React.FC<RecentSessionsProps> = ({
           style={{
             background: 'var(--bg-card)',
             border: '1px dashed var(--border-color)',
-            borderRadius: '10px',
+            borderRadius: 'var(--radius-card)',
             padding: '24px',
             textAlign: 'center',
             color: 'var(--text-muted)',

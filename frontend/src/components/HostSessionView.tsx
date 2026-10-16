@@ -90,7 +90,7 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
       height: '100%',
       width: '100%',
       backgroundColor: 'var(--bg-main)',
-      color: 'var(--text-main)',
+      color: 'var(--text-primary)',
       overflowY: 'auto'
     }}>
       {/* Top Session Bar (AnyDesk Red / Slate style) */}
@@ -136,18 +136,18 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: '#ef4444',
+              background: 'var(--color-primary)',
               color: '#ffffff',
               border: 'none',
               padding: '5px 12px',
-              borderRadius: '5px',
+              borderRadius: 'var(--radius-button)',
               fontSize: '12px',
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: 'pointer',
               transition: 'all 0.15s ease'
             }}
-            onMouseOver={(e) => (e.currentTarget.style.background = '#dc2626')}
-            onMouseOut={(e) => (e.currentTarget.style.background = '#ef4444')}
+            onMouseOver={(e) => (e.currentTarget.style.background = 'var(--color-primary-hover)')}
+            onMouseOut={(e) => (e.currentTarget.style.background = 'var(--color-primary)')}
           >
             <Power size={13} />
             <span>End Session</span>
@@ -192,7 +192,7 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
               <Shield size={28} />
             </div>
             <div>
-              <div style={{ fontSize: '18px', fontWeight: 700, color: '#f8fafc' }}>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>
                 Your Screen is Currently Shared
               </div>
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
@@ -261,9 +261,9 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <MousePointer size={18} style={{ color: permissions.allowControl ? '#22c55e' : '#ef4444' }} />
+                <MousePointer size={18} style={{ color: permissions.allowControl ? '#22c55e' : 'var(--color-primary)' }} />
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
                     Remote Mouse & Keyboard Control
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -312,7 +312,7 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Clipboard size={18} style={{ color: permissions.allowClipboard ? '#38bdf8' : '#94a3b8' }} />
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
                     Clipboard Synchronization
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -407,18 +407,18 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                background: '#ef4444',
+                background: 'var(--color-primary)',
                 color: '#fff',
                 border: 'none',
                 padding: '9px 20px',
-                borderRadius: '6px',
+                borderRadius: 'var(--radius-button)',
                 fontSize: '13px',
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                boxShadow: '0 4px 12px var(--primary-red-glow)'
               }}
-              onMouseOver={(e) => (e.currentTarget.style.background = '#dc2626')}
-              onMouseOut={(e) => (e.currentTarget.style.background = '#ef4444')}
+              onMouseOver={(e) => (e.currentTarget.style.background = 'var(--color-primary-hover)')}
+              onMouseOut={(e) => (e.currentTarget.style.background = 'var(--color-primary)')}
             >
               <Power size={15} />
               <span>Disconnect & Stop Sharing</span>

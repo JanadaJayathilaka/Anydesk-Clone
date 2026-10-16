@@ -62,7 +62,7 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
     <div className="card remote-desk-card">
       <div className="card-header">
         <div className="card-title-group">
-          <Globe size={22} color="var(--color-blue)" />
+          <Globe size={22} color="var(--color-primary)" />
           <div>
             <h2 className="card-title">Remote Desk</h2>
             <div className="card-subtitle">Connect to a computer on your Local Network or Wi-Fi</div>
@@ -253,9 +253,6 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
         )}
       </div>
 
-      <div style={{ marginTop: '20px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-        Direct high-speed WebRTC peer connection over Local Network (LAN/Wi-Fi). The remote host must be online with AnyDesk open to approve the connection.
-      </div>
     </div>
   );
 };
