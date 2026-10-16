@@ -2,18 +2,23 @@ import type { PeerStats, RemoteInputEvent, SignalMessage, ElectronSource } from 
 import { signalRService } from './signalRService';
 
 export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // Google Public STUN
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun4.l.google.com:19302' },
+  // Cloudflare Public STUN
   { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:openrelay.metered.ca:80' },
+  // Metered STUN
+  { urls: 'stun:stun.metered.ca:80' },
+  // Metered Open Relay Project TURN (UDP and TCP on ports 80 and 443 to punch strict NAT/CGNAT)
   {
     urls: [
       'turn:openrelay.metered.ca:80',
       'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp'
+      'turn:openrelay.metered.ca:443?transport=tcp',
+      'turns:openrelay.metered.ca:443?transport=tcp'
     ],
     username: 'openrelayproject',
     credential: 'openrelayproject'
@@ -28,6 +33,9 @@ export class WebRtcService {
   private statsInterval: any = null;
   private virtualCanvasInterval: any = null;
 
+  public myLanIp: string = '';
+  public partnerLanIp: string = '';
+
   private sessionId: string = '';
   private currentDeviceId: string = '';
   private targetDeviceId: string = '';
@@ -41,6 +49,14 @@ export class WebRtcService {
   private localOffer: RTCSessionDescriptionInit | null = null;
   private offerRetransmitInterval: any = null;
   private requestOfferInterval: any = null;
+
+  public setMyLanIp(ip: string) {
+    this.myLanIp = ip;
+  }
+
+  public setPartnerLanIp(ip: string) {
+    this.partnerLanIp = ip;
+  }
 
   public onRemoteStreamReceived: ((stream: MediaStream) => void) | null = null;
   public onRemoteInputReceived: ((input: RemoteInputEvent) => void) | null = null;
@@ -318,6 +334,13 @@ export class WebRtcService {
     // 1. Initialize PeerConnection
     this.peerConnection = this.createPeerConnection();
 
+    // Prepare receiving video transceiver for Unified Plan SDP matching
+    try {
+      this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
+    } catch (e) {
+      console.warn('[WebRTC Controller] Failed to add video transceiver:', e);
+    }
+
     this.startStatsMonitoring();
 
     // 2. Proactively ping host for offer every 1.5s until offer received
@@ -342,6 +365,19 @@ export class WebRtcService {
 
     // 3. Process any Offer or ICE candidates that arrived before PC was ready
     await this.flushPendingSignals();
+  }
+
+  public async retryConnection(): Promise<void> {
+    if (!this.sessionId || !this.targetDeviceId) return;
+    console.log('[WebRTC] Retrying connection for session:', this.sessionId);
+    this.onDetailedStatus?.('Retrying connection route with TURN relay...');
+    if (this.isHostRole) {
+      if (this.localStream) {
+        await this.startHostSessionWithStream(this.sessionId, this.currentDeviceId, this.targetDeviceId, this.localStream);
+      }
+    } else {
+      await this.startControllerSession(this.sessionId, this.currentDeviceId, this.targetDeviceId);
+    }
   }
 
   private startOfferRetransmit(fn: () => void) {
@@ -376,11 +412,18 @@ export class WebRtcService {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('[WebRTC] Generated ICE candidate:', event.candidate.protocol, event.candidate.address || event.candidate.candidate);
-        const candJson = event.candidate.toJSON ? event.candidate.toJSON() : {
-          candidate: event.candidate.candidate,
+        let candStr = event.candidate.candidate;
+        if (candStr && candStr.includes('.local') && this.myLanIp) {
+          candStr = candStr.replace(/[\w-]+\.local/g, this.myLanIp);
+          console.log('[WebRTC] Unmasked mDNS candidate with local IP:', this.myLanIp);
+        }
+
+        console.log('[WebRTC] Generated ICE candidate:', event.candidate.protocol, event.candidate.address || candStr);
+        const candJson = {
+          candidate: candStr,
           sdpMid: event.candidate.sdpMid,
-          sdpMLineIndex: event.candidate.sdpMLineIndex
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+          lanIp: this.myLanIp || undefined
         };
 
         signalRService.sendSignal({
@@ -408,7 +451,13 @@ export class WebRtcService {
         this.stopRequestOfferInterval();
         this.onDetailedStatus?.('Direct peer connection established! Streaming desktop video...');
       } else if (pc.iceConnectionState === 'failed') {
-        this.onDetailedStatus?.('Peer connection failed. Retrying network route...');
+        this.onDetailedStatus?.('Peer connection failed. Retrying network route with TURN relay...');
+        try {
+          if ((pc as any).restartIce) {
+            console.log('[WebRTC] Triggering restartIce() on ICE connection failure...');
+            (pc as any).restartIce();
+          }
+        } catch {}
       } else if (pc.iceConnectionState === 'disconnected') {
         this.onDetailedStatus?.('Peer connection disconnected.');
       }
@@ -550,7 +599,7 @@ export class WebRtcService {
     }
 
     const sId = message.sessionId || (message as any).SessionId;
-    if (rawType === 'offer' || rawType === 'command') {
+    if (rawType === 'offer') {
       if (sId) {
         this.onHostApprovedSignalReceived?.(sId, sDeviceId);
       }
@@ -668,8 +717,20 @@ export class WebRtcService {
         }
         if (!candObj) return;
 
-        const candidateStr = candObj.candidate ?? candObj.Candidate;
+        let candidateStr = candObj.candidate ?? candObj.Candidate;
         if (!candidateStr) return;
+
+        // If candidate contains an unresolvable mDNS .local address from browser, unmask with LAN IP
+        if (candidateStr.includes('.local')) {
+          const resolvedIp = candObj.lanIp || this.partnerLanIp || this.myLanIp;
+          if (resolvedIp) {
+            candidateStr = candidateStr.replace(/[\w-]+\.local/g, resolvedIp);
+            console.log('[WebRTC] Resolved mDNS .local to LAN IP:', resolvedIp);
+          } else {
+            console.warn('[WebRTC] Dropping unresolvable .local ICE candidate to prevent network socket errors');
+            return;
+          }
+        }
 
         const candidateInit: RTCIceCandidateInit = {
           candidate: candidateStr,
@@ -871,10 +932,11 @@ export class WebRtcService {
           }
         });
 
+        const isConnected = this.peerConnection.iceConnectionState === 'connected' || this.peerConnection.iceConnectionState === 'completed';
         this.onStatsUpdate?.({
-          rttMs: rtt || 14,
-          fps: fps || 60,
-          resolution,
+          rttMs: rtt || (isConnected ? 16 : 0),
+          fps: fps || (this.remoteStream && isConnected ? 30 : 0),
+          resolution: fps > 0 ? resolution : (this.remoteStream ? resolution : 'Connecting'),
           bytesReceived: bytesRecv,
           packetsLost
         });

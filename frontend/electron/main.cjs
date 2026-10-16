@@ -9,6 +9,9 @@ const http = require('http');
 // Expose real local LAN IP addresses in WebRTC ICE candidates (disable mDNS IP anonymization)
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 app.commandLine.appendSwitch('enable-webrtc-hide-local-ips-with-mdns', 'false');
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_and_private_interfaces');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('enable-features', 'WebRTCPeerConnectionWithBlockIceAddresses');
 
 let mainWindow = null;
 let backendProcess = null;
@@ -356,7 +359,26 @@ async function ensureBackendRunning() {
   return { success: true, pid: backendProcess ? backendProcess.pid : null };
 }
 
+function getAppIconPath() {
+  const iconCandidates = [
+    path.join(__dirname, 'icon.ico'),
+    path.join(__dirname, 'icon.png'),
+    path.join(__dirname, '../public/icon.ico'),
+    path.join(__dirname, '../public/icon.png'),
+    path.join(__dirname, '../../public/icon.ico'),
+    path.join(__dirname, '../../public/icon.png')
+  ];
+  for (const candidate of iconCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function createWindow() {
+  const appIcon = getAppIconPath();
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -364,7 +386,8 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: '#0c0e14',
     frame: true,
-    title: 'AnyDesk Clone - Remote Desktop',
+    title: 'AnyDesk - Remote Desktop',
+    icon: appIcon || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -373,6 +396,14 @@ function createWindow() {
       webSecurity: false
     }
   });
+
+  if (appIcon && mainWindow.setIcon) {
+    try {
+      mainWindow.setIcon(appIcon);
+    } catch (e) {
+      console.warn('[Window] Could not set window icon:', e.message);
+    }
+  }
 
   Menu.setApplicationMenu(null);
 
@@ -395,10 +426,27 @@ function createWindow() {
     console.log('[Window] Loading packaged index.html from:', distPath);
     mainWindow.loadFile(distPath);
   } else {
-    mainWindow.loadURL(devServerUrl).catch(() => {
-      console.log('[Window] Dev server unreachable, falling back to local files:', distPath);
-      mainWindow.loadFile(distPath);
-    });
+    // When in development, connect to Vite dev server for real-time HMR
+    const loadDevOrFallback = async (retries = 15, delay = 500) => {
+      for (let i = 0; i < retries; i++) {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        try {
+          await mainWindow.loadURL(devServerUrl);
+          console.log('[Window] Connected to live Vite dev server at:', devServerUrl);
+          return;
+        } catch (err) {
+          if (i < retries - 1) {
+            console.log(`[Window] Waiting for Vite dev server (${i + 1}/${retries})...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+      }
+      console.log('[Window] Dev server unreachable after retries, falling back to local files:', distPath);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadFile(distPath);
+      }
+    };
+    loadDevOrFallback();
   }
 
   mainWindow.on('closed', () => {
@@ -429,8 +477,8 @@ ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
     const types = (opts && opts.types) ? opts.types : ['screen'];
     const sources = await desktopCapturer.getSources({
       types: types,
-      thumbnailSize: { width: 320, height: 180 },
-      fetchWindowIcons: true
+      thumbnailSize: { width: 160, height: 90 },
+      fetchWindowIcons: false
     });
 
     return sources.map((source) => ({
@@ -698,11 +746,24 @@ ipcMain.on('system:simulate-input', (event, input) => {
 });
 
 app.whenReady().then(async () => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.anydeskclone.app');
+  }
+
   // Automatically handle getDisplayMedia requests with primary or active screen
   if (session.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true);
+    });
+    session.defaultSession.setPermissionCheckHandler(() => true);
+
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       try {
-        const sources = await desktopCapturer.getSources({ types: ['screen'] });
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: { width: 0, height: 0 },
+          fetchWindowIcons: false
+        });
         let chosen = null;
         if (activeScreenSourceId) {
           chosen = sources.find((s) => s.id === activeScreenSourceId);

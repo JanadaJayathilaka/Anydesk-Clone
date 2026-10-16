@@ -1,4 +1,4 @@
-import { Play, ArrowRight, Loader2, Globe, MonitorPlay, Wifi, RefreshCw } from 'lucide-react';
+import { Play, ArrowRight, Loader2, Globe, Wifi, RefreshCw } from 'lucide-react';
 import type { ConnectionStatus, LanDiscoveredDevice } from '../types';
 
 interface RemoteDeskCardProps {
@@ -20,7 +20,7 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
   onChangeRemoteId,
   onConnect,
   onCancel,
-  onSelfTest,
+  onSelfTest: _onSelfTest,
   status,
   statusMessage,
   thisDeviceId,
@@ -68,7 +68,7 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
             <div className="card-subtitle">Connect to a computer on your Local Network or Wi-Fi</div>
           </div>
         </div>
-        {onSelfTest && (
+        {/* {onSelfTest && (
           <button
             type="button"
             onClick={onSelfTest}
@@ -89,7 +89,7 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
             <MonitorPlay size={12} />
             <span>Self-Test</span>
           </button>
-        )}
+        )} */}
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -142,9 +142,8 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
                   ? 'rgba(239, 68, 68, 0.15)'
                   : 'rgba(56, 189, 248, 0.1)',
               color: status === 'rejected' ? 'var(--primary-red)' : 'var(--color-blue)',
-              border: `1px solid ${
-                status === 'rejected' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(56, 189, 248, 0.3)'
-              }`
+              border: `1px solid ${status === 'rejected' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(56, 189, 248, 0.3)'
+                }`
             }}
           >
             {isConnecting && <Loader2 size={14} className="animate-spin" />}

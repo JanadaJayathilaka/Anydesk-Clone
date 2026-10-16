@@ -21,6 +21,7 @@ import type {
 } from './types';
 import { signalRService } from './services/signalRService';
 import { webRtcService } from './services/webRtcService';
+import { DEFAULT_SERVER_URL, isLocalOrPrivateIp } from './utils/networkUtils';
 
 const STORAGE_KEY_DEVICE_ID = 'anydesk_clone_device_id';
 const STORAGE_KEY_SERVER_URL = 'anydesk_clone_server_url';
@@ -32,16 +33,6 @@ function generateDeviceId(): string {
   const min = 100000000;
   const max = 999999999;
   return Math.floor(min + Math.random() * (max - min)).toString();
-}
-
-export const DEFAULT_SERVER_URL = 'http://18.188.166.170:5082';
-
-export function isLocalOrPrivateIp(url: string | null | undefined): boolean {
-  if (!url) return true;
-  if (url.includes('localhost') || url.includes('127.0.0.1')) return true;
-  // Match 192.168.x.x, 10.x.x.x, 172.16-31.x.x
-  if (/https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(url)) return true;
-  return false;
 }
 
 export const App: React.FC = () => {
@@ -141,8 +132,23 @@ export const App: React.FC = () => {
         }
         if (info.localIp) {
           setLocalIp(info.localIp);
+          webRtcService.setMyLanIp(info.localIp);
         }
       });
+    } else {
+      fetch('/api/my-ip')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.ip && data.ip !== '127.0.0.1') {
+            setLocalIp(data.ip);
+            webRtcService.setMyLanIp(data.ip);
+            console.log('[App] Detected browser client LAN IP:', data.ip);
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (window.electronAPI?.isElectron) {
 
       if (window.electronAPI.broadcastLanPresence) {
         window.electronAPI.broadcastLanPresence({ deviceId, deviceName });
@@ -305,6 +311,7 @@ export const App: React.FC = () => {
     isHostRef.current = false;
 
     setStatusMessage('Connection approved! Negotiating WebRTC peer connection...');
+    setConnectionDetailStatus('Connection approved! Establishing direct video feed...');
     setConnectionStatus('connected');
     setActiveSessionId(sid);
     setIsHost(false);
@@ -496,6 +503,7 @@ export const App: React.FC = () => {
         setActiveSessionId(reqSessionId);
       }
       setConnectionStatus('waiting_approval');
+      setConnectionDetailStatus(`Waiting for Desk ${targetId} to accept connection request...`);
       setStatusMessage('Waiting for remote partner to accept request...');
 
       // Fast polling fallback: check session state every 800ms while waiting for approval
@@ -870,12 +878,14 @@ export const App: React.FC = () => {
           sessionId={activeSessionId}
           isHost={false}
           stats={peerStats}
+          connectionStatus={connectionStatus}
           connectionDetailStatus={connectionDetailStatus}
           screenSources={remoteHostScreens}
           selectedSourceId={selectedSourceId}
           onSelectSourceId={handleSwitchScreen}
           onSendInputEvent={handleSendInputEvent}
           onDisconnect={() => handleEndSession(true)}
+          onRetry={() => webRtcService.retryConnection()}
         />
       )}
 

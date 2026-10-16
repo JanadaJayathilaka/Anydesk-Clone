@@ -6,9 +6,10 @@ import {
   Minimize,
   Keyboard,
   Monitor,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react';
-import type { PeerStats, RemoteInputEvent, ElectronSource } from '../types';
+import type { PeerStats, RemoteInputEvent, ElectronSource, ConnectionStatus } from '../types';
 
 interface RemoteScreenViewerProps {
   remoteStream: MediaStream | null;
@@ -16,6 +17,7 @@ interface RemoteScreenViewerProps {
   sessionId: string;
   isHost: boolean;
   stats: PeerStats;
+  connectionStatus?: ConnectionStatus;
   connectionDetailStatus?: string;
   screenSources?: ElectronSource[];
   selectedSourceId?: string;
@@ -25,6 +27,7 @@ interface RemoteScreenViewerProps {
   onSwitchSides?: () => void;
   onSendInputEvent: (input: RemoteInputEvent) => void;
   onDisconnect: () => void;
+  onRetry?: () => void;
 }
 
 export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
@@ -33,12 +36,14 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
   sessionId,
   isHost,
   stats,
+  connectionStatus,
   connectionDetailStatus,
   screenSources = [],
   selectedSourceId = '',
   onSelectSourceId,
   onSendInputEvent,
-  onDisconnect
+  onDisconnect,
+  onRetry
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -359,12 +364,18 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         {/* Center Section: Quality & Latency Stats */}
         <div className="anydesk-bar-center">
           <div className="anydesk-stats-pill">
-            <span className="stat-dot" />
-            <span>{stats.rttMs}ms</span>
-            <span className="stat-sep">•</span>
-            <span>{stats.fps} FPS</span>
-            <span className="stat-sep">•</span>
-            <span>{stats.resolution}</span>
+            <span className="stat-dot" style={{ background: remoteStream && isVideoPlaying ? '#22c55e' : '#eab308' }} />
+            {remoteStream && isVideoPlaying ? (
+              <>
+                <span>{stats.rttMs || 16}ms</span>
+                <span className="stat-sep">•</span>
+                <span>{stats.fps || 60} FPS</span>
+                <span className="stat-sep">•</span>
+                <span>{stats.resolution || '1920x1080'}</span>
+              </>
+            ) : (
+              <span>Connecting video feed...</span>
+            )}
           </div>
         </div>
 
@@ -512,12 +523,88 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             background: 'var(--bg-dark)',
             zIndex: 10
           }}>
-            <div className="status-dot connecting" style={{ width: '22px', height: '22px' }} />
+            <div
+              className={`status-dot ${
+                connectionStatus === 'waiting_approval'
+                  ? 'waiting'
+                  : connectionDetailStatus?.toLowerCase().includes('fail')
+                  ? 'offline'
+                  : 'connecting'
+              }`}
+              style={{
+                width: '24px',
+                height: '24px',
+                background: connectionDetailStatus?.toLowerCase().includes('fail')
+                  ? '#ef4444'
+                  : connectionStatus === 'waiting_approval'
+                  ? '#38bdf8'
+                  : '#f59e0b',
+                boxShadow: `0 0 16px ${
+                  connectionDetailStatus?.toLowerCase().includes('fail')
+                    ? 'rgba(239, 68, 68, 0.5)'
+                    : connectionStatus === 'waiting_approval'
+                    ? 'rgba(56, 189, 248, 0.5)'
+                    : 'rgba(245, 158, 11, 0.5)'
+                }`
+              }}
+            />
             <div style={{ fontSize: '20px', fontWeight: 600 }}>
-              Connecting to Remote Desktop Feed...
+              {connectionStatus === 'waiting_approval'
+                ? 'Waiting for Remote Partner to Accept...'
+                : connectionDetailStatus?.toLowerCase().includes('fail')
+                ? 'Peer Connection In Progress / Retrying...'
+                : 'Connecting to Remote Desktop Feed...'}
             </div>
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '480px' }}>
-              {connectionDetailStatus || `Establishing direct peer-to-peer connection with ${formattedPeerId}. Receiving video stream...`}
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '520px', lineHeight: '1.6' }}>
+              {connectionStatus === 'waiting_approval'
+                ? `Connection request was sent to Desk ${formattedPeerId}. Please click "Accept" on that computer.`
+                : connectionDetailStatus || `Establishing direct peer-to-peer connection with ${formattedPeerId}. Receiving video stream...`}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  style={{
+                    padding: '8px 18px',
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    color: '#38bdf8',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  <span>Retry Peer Link</span>
+                </button>
+              )}
+
+              <button
+                onClick={onDisconnect}
+                style={{
+                  padding: '8px 20px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <Power size={14} />
+                <span>Cancel Connection</span>
+              </button>
             </div>
           </div>
         )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Minus, Square, X, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import type { ConnectionStatus } from '../types';
 
 interface TitleBarProps {
@@ -8,12 +8,6 @@ interface TitleBarProps {
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({ status, onOpenSettings }) => {
-  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
-
-  const handleMinimize = () => window.electronAPI?.minimize();
-  const handleMaximize = () => window.electronAPI?.maximize();
-  const handleClose = () => window.electronAPI?.close();
-
   const getStatusText = () => {
     switch (status) {
       case 'ready':
@@ -42,10 +36,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({ status, onOpenSettings }) =>
     <header className="app-titlebar">
       <div className="titlebar-left">
         <div className="app-logo">
-          {/* Iconic AnyDesk diamond logo SVG */}
-          <svg className="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="12 2 2 12 12 22 22 12 12 2" fill="currentColor" fillOpacity="0.85" />
-            <polygon points="12 6 6 12 12 18 18 12 12 6" fill="#0c0e14" />
+          {/* Iconic AnyDesk red polygon logo */}
+          <svg className="logo-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8.322 3.677 0 12l8.322 8.323L16.645 12zm7.371.01-1.849 1.85 6.49 6.456-6.49 6.49 1.85 1.817L24 11.993z" />
           </svg>
           <span>AnyDesk</span>
         </div>
@@ -67,20 +60,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({ status, onOpenSettings }) =>
         >
           <Settings size={16} />
         </button>
-
-        {isElectron && (
-          <>
-            <button className="btn-icon-titlebar" onClick={handleMinimize} title="Minimize" aria-label="Minimize">
-              <Minus size={14} />
-            </button>
-            <button className="btn-icon-titlebar" onClick={handleMaximize} title="Maximize" aria-label="Maximize">
-              <Square size={13} />
-            </button>
-            <button className="btn-icon-titlebar close-btn" onClick={handleClose} title="Close" aria-label="Close">
-              <X size={15} />
-            </button>
-          </>
-        )}
       </div>
     </header>
   );

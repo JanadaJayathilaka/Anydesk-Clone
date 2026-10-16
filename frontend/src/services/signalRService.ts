@@ -18,58 +18,100 @@ export class SignalRService {
     return this.hubConnection?.state === signalR.HubConnectionState.Connected;
   }
 
+  private isConnecting: boolean = false;
+  private connectPromise: Promise<boolean> | null = null;
+
   public async connect(serverUrl: string, deviceId: string, deviceName: string): Promise<boolean> {
     this.currentDeviceId = deviceId;
 
-    if (this.hubConnection) {
+    if (this.hubConnection?.state === signalR.HubConnectionState.Connected) {
+      await this.registerDevice(deviceId, deviceName);
+      return true;
+    }
+
+    if (this.isConnecting && this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    if (this.hubConnection?.state === signalR.HubConnectionState.Connecting) {
+      // Already negotiating with server, wait for negotiation to finish
+      return new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => resolve(false), 8000);
+        const check = setInterval(() => {
+          if (this.hubConnection?.state === signalR.HubConnectionState.Connected) {
+            clearInterval(check);
+            clearTimeout(timeout);
+            this.registerDevice(deviceId, deviceName).then(() => resolve(true));
+          } else if (!this.hubConnection || this.hubConnection.state === signalR.HubConnectionState.Disconnected) {
+            clearInterval(check);
+            clearTimeout(timeout);
+            resolve(false);
+          }
+        }, 200);
+      });
+    }
+
+    this.isConnecting = true;
+    this.connectPromise = (async () => {
       try {
-        await this.hubConnection.stop();
-      } catch (e) {
-        // ignore
+        if (this.hubConnection && this.hubConnection.state === signalR.HubConnectionState.Connected) {
+          try {
+            await this.hubConnection.stop();
+          } catch (e) {
+            // ignore
+          }
+        }
+
+        const candidateUrls = [serverUrl];
+        if (serverUrl.includes('localhost:5082')) {
+          candidateUrls.push(serverUrl.replace('localhost:5082', '127.0.0.1:5082'));
+        } else if (serverUrl.includes('127.0.0.1:5082')) {
+          candidateUrls.push(serverUrl.replace('127.0.0.1:5082', 'localhost:5082'));
+        }
+
+        let lastError: any = null;
+
+        for (const url of candidateUrls) {
+          try {
+            this.hubConnection = new signalR.HubConnectionBuilder()
+              .withUrl(`${url.replace(/\/+$/, '')}/hubs/session`, {
+                skipNegotiation: false,
+                transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling
+              })
+              .withAutomaticReconnect([0, 1000, 3000, 5000, 10000])
+              .configureLogging(signalR.LogLevel.Warning)
+              .build();
+
+            this.registerHandlers();
+
+            await this.hubConnection.start();
+
+            // Register device on hub
+            await this.hubConnection.invoke('RegisterDevice', deviceId, deviceName);
+
+            this.startHeartbeat();
+            this.onConnectionChange?.(true);
+            return true;
+          } catch (err: any) {
+            lastError = err;
+            if (this.hubConnection?.state === signalR.HubConnectionState.Connected) {
+              try {
+                await this.hubConnection?.stop();
+              } catch {}
+            }
+          }
+        }
+
+        console.warn('SignalR connection failed (running in offline/disconnected mode):', lastError?.message || lastError);
+        this.onConnectionChange?.(false, lastError?.message || 'Could not connect to signaling server');
+        return false;
+      } finally {
+        this.isConnecting = false;
+        this.connectPromise = null;
       }
-    }
+    })();
 
-    const candidateUrls = [serverUrl];
-    if (serverUrl.includes('localhost:5082')) {
-      candidateUrls.push(serverUrl.replace('localhost:5082', '127.0.0.1:5082'));
-    } else if (serverUrl.includes('127.0.0.1:5082')) {
-      candidateUrls.push(serverUrl.replace('127.0.0.1:5082', 'localhost:5082'));
-    }
-
-    let lastError: any = null;
-
-    for (const url of candidateUrls) {
-      try {
-        this.hubConnection = new signalR.HubConnectionBuilder()
-          .withUrl(`${url.replace(/\/+$/, '')}/hubs/session`, {
-            skipNegotiation: false,
-            transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling
-          })
-          .withAutomaticReconnect([0, 1000, 3000, 5000, 10000])
-          .configureLogging(signalR.LogLevel.Warning)
-          .build();
-
-        this.registerHandlers();
-
-        await this.hubConnection.start();
-
-        // Register device on hub
-        await this.hubConnection.invoke('RegisterDevice', deviceId, deviceName);
-
-        this.startHeartbeat();
-        this.onConnectionChange?.(true);
-        return true;
-      } catch (err: any) {
-        lastError = err;
-        try {
-          await this.hubConnection?.stop();
-        } catch {}
-      }
-    }
-
-    console.warn('SignalR connection failed (running in offline/disconnected mode):', lastError?.message || lastError);
-    this.onConnectionChange?.(false, lastError?.message || 'Could not connect to signaling server');
-    return false;
+    return this.connectPromise;
   }
 
   private registerHandlers() {

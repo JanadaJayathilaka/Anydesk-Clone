@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Check, Activity, Server, Laptop, AlertTriangle, ShieldCheck } from 'lucide-react';
-import { DEFAULT_SERVER_URL, isLocalOrPrivateIp } from '../App';
+import { DEFAULT_SERVER_URL, isLocalOrPrivateIp } from '../utils/networkUtils';
 
 interface SettingsModalProps {
   serverUrl: string;
