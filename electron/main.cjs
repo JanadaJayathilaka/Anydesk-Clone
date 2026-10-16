@@ -7,11 +7,18 @@ const { spawn } = require('child_process');
 const http = require('http');
 
 // Expose real local LAN IP addresses in WebRTC ICE candidates (disable mDNS IP anonymization)
-app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+// and prevent Chromium from throttling or pausing WebRTC and input when minimized or occluded
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WebRtcHideLocalIpsWithMdns,IntensiveWakeUpThrottling');
 app.commandLine.appendSwitch('enable-webrtc-hide-local-ips-with-mdns', 'false');
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_and_private_interfaces');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('enable-features', 'WebRTCPeerConnectionWithBlockIceAddresses');
+
+// Prevent Chromium from throttling WebRTC video capture, timers, IPC, and rendering when minimized or in background
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-ipc-flooding-protection');
 
 let mainWindow = null;
 let backendProcess = null;
@@ -393,9 +400,14 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false
+      webSecurity: false,
+      backgroundThrottling: false
     }
   });
+
+  if (mainWindow.webContents && mainWindow.webContents.setBackgroundThrottling) {
+    mainWindow.webContents.setBackgroundThrottling(false);
+  }
 
   if (appIcon && mainWindow.setIcon) {
     try {
@@ -764,12 +776,13 @@ app.whenReady().then(async () => {
           thumbnailSize: { width: 160, height: 90 },
           fetchWindowIcons: false
         });
+        const screens = sources.filter((s) => s.id.startsWith('screen'));
         let chosen = null;
         if (activeScreenSourceId) {
           chosen = sources.find((s) => s.id === activeScreenSourceId || (s.id && activeScreenSourceId && s.id.includes(activeScreenSourceId)));
         }
-        if (!chosen) {
-          chosen = sources.find((s) => s.id.startsWith('screen')) || sources[0];
+        if (!chosen || !chosen.id.startsWith('screen')) {
+          chosen = screens[0] || chosen || sources[0];
         }
         if (chosen) {
           console.log('[DisplayMedia] Serving screen source for getDisplayMedia:', chosen.name, chosen.id);
