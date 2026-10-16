@@ -106,11 +106,7 @@ export class WebRtcService {
     if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            frameRate: { ideal: 60, max: 60 },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
+          video: true,
           audio: false
         });
         if (stream && stream.getVideoTracks().length > 0) {
@@ -262,10 +258,14 @@ export class WebRtcService {
     // 2. Setup Host Data Channel BEFORE creating offer (so it's included in SDP)
     this.setupHostDataChannel();
 
-    // 3. Add Screen Tracks to PeerConnection
+    // 3. Add Screen Tracks to PeerConnection with explicit sendonly transceiver direction
     this.localStream.getTracks().forEach((track) => {
       console.log('[WebRTC Host] Adding track to PC:', track.kind, track.label, 'readyState:', track.readyState);
-      this.peerConnection?.addTrack(track, this.localStream!);
+      const sender = this.peerConnection?.addTrack(track, this.localStream!);
+      const transceiver = this.peerConnection?.getTransceivers().find((t) => t.sender === sender);
+      if (transceiver) {
+        transceiver.direction = 'sendonly';
+      }
     });
 
     // 4. Create Host Offer (includes the video track + data channel in SDP)
@@ -333,13 +333,6 @@ export class WebRtcService {
 
     // 1. Initialize PeerConnection
     this.peerConnection = this.createPeerConnection();
-
-    // Prepare receiving video transceiver for Unified Plan SDP matching
-    try {
-      this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
-    } catch (e) {
-      console.warn('[WebRTC Controller] Failed to add video transceiver:', e);
-    }
 
     this.startStatsMonitoring();
 
@@ -655,6 +648,13 @@ export class WebRtcService {
         }));
         console.log('[WebRTC Controller] Set remote description (Offer) success');
 
+        // Configure all incoming video transceivers to recvonly
+        this.peerConnection.getTransceivers().forEach((t) => {
+          if (t.receiver?.track?.kind === 'video') {
+            t.direction = 'recvonly';
+          }
+        });
+
         await this.flushPendingCandidates();
 
         const answer = await this.peerConnection.createAnswer();
@@ -752,18 +752,27 @@ export class WebRtcService {
       } else if (type === 'command') {
         const cmd = typeof rawPayload === 'string' ? (() => { try { return JSON.parse(rawPayload); } catch { return rawPayload; } })() : rawPayload;
         if (cmd?.type === 'request-offer') {
-          if (this.isHostRole && this.localOffer) {
-            console.log('[WebRTC Host] Received request-offer from controller, re-transmitting offer now...');
-            signalRService.sendSignal({
-              sessionId: this.sessionId || message.sessionId || message.SessionId,
-              senderDeviceId: this.currentDeviceId,
-              targetDeviceId: this.targetDeviceId || message.senderDeviceId || message.SenderDeviceId,
-              type: 'offer',
-              payload: {
-                type: this.localOffer.type,
-                sdp: this.localOffer.sdp
+          if (this.isHostRole) {
+            const sendOfferWhenReady = async () => {
+              for (let i = 0; i < 20; i++) {
+                if (this.localOffer) {
+                  console.log('[WebRTC Host] Received request-offer, transmitting offer now...');
+                  await signalRService.sendSignal({
+                    sessionId: this.sessionId || message.sessionId || message.SessionId,
+                    senderDeviceId: this.currentDeviceId,
+                    targetDeviceId: this.targetDeviceId || message.senderDeviceId || message.SenderDeviceId,
+                    type: 'offer',
+                    payload: {
+                      type: this.localOffer.type,
+                      sdp: this.localOffer.sdp
+                    }
+                  });
+                  return;
+                }
+                await new Promise((r) => setTimeout(r, 150));
               }
-            });
+            };
+            sendOfferWhenReady();
           }
           return;
         }

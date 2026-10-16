@@ -760,19 +760,19 @@ app.whenReady().then(async () => {
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       try {
         const sources = await desktopCapturer.getSources({
-          types: ['screen'],
-          thumbnailSize: { width: 0, height: 0 },
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 160, height: 90 },
           fetchWindowIcons: false
         });
         let chosen = null;
         if (activeScreenSourceId) {
-          chosen = sources.find((s) => s.id === activeScreenSourceId);
+          chosen = sources.find((s) => s.id === activeScreenSourceId || (s.id && activeScreenSourceId && s.id.includes(activeScreenSourceId)));
         }
         if (!chosen) {
           chosen = sources.find((s) => s.id.startsWith('screen')) || sources[0];
         }
         if (chosen) {
-          console.log('[DisplayMedia] Serving screen source:', chosen.name, chosen.id);
+          console.log('[DisplayMedia] Serving screen source for getDisplayMedia:', chosen.name, chosen.id);
           callback({ video: chosen });
         } else {
           console.warn('[DisplayMedia] No screen source found to serve');

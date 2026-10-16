@@ -630,22 +630,7 @@ export const App: React.FC = () => {
     }
     webRtcService.setHostScreensList(screensToSend, selectedSourceId || screensToSend[0]?.id);
 
-    await signalRService.respondSession(req.sessionId, true, approvedPermissions);
-
-    // Notify controller of host's available screens
-    await signalRService.sendSignal({
-      sessionId: req.sessionId,
-      senderDeviceId: deviceId,
-      targetDeviceId: req.controllerDeviceId,
-      type: 'command',
-      payload: {
-        type: 'host-screens-list',
-        screens: screensToSend,
-        activeSourceId: selectedSourceId || screensToSend[0]?.id
-      }
-    });
-
-    // 3. Negotiate WebRTC with the acquired stream
+    // 3. Negotiate WebRTC with the acquired stream FIRST so Host has localOffer ready
     try {
       window.electronAPI?.startCursorBroadcast?.();
       await webRtcService.startHostSessionWithStream(
@@ -657,6 +642,22 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error('[App] Failed to start host WebRTC session:', err);
     }
+
+    // 4. Respond to session approval on signaling hub
+    await signalRService.respondSession(req.sessionId, true, approvedPermissions);
+
+    // 5. Notify controller of host's available screens
+    await signalRService.sendSignal({
+      sessionId: req.sessionId,
+      senderDeviceId: deviceId,
+      targetDeviceId: req.controllerDeviceId,
+      type: 'command',
+      payload: {
+        type: 'host-screens-list',
+        screens: screensToSend,
+        activeSourceId: selectedSourceId || screensToSend[0]?.id
+      }
+    });
   };
 
   // Update permissions live on host and notify controller
