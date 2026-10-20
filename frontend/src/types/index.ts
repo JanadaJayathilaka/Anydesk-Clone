@@ -81,6 +81,12 @@ export interface ElectronSource {
   name: string;
   thumbnail?: string | null;
   display_id?: string;
+  displayNumber?: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  isPrimary?: boolean;
 }
 
 export interface LanDiscoveredDevice {
@@ -114,10 +120,12 @@ export interface ElectronAPI {
   close: () => void;
   isMaximized: () => Promise<boolean>;
   simulateInput?: (input: RemoteInputEvent) => void;
-  setActiveDisplay?: (sourceId: string) => void;
+  setActiveDisplay?: (sourceId: string) => Promise<boolean> | void;
   startCursorBroadcast?: () => void;
   stopCursorBroadcast?: () => void;
   onHostCursorPosition?: (callback: (pos: { x: number; y: number }) => void) => () => void;
+  readClipboard?: () => Promise<string>;
+  writeClipboard?: (text: string) => void;
 }
 
 declare global {

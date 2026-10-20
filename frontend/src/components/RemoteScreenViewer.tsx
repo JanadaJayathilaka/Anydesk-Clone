@@ -6,10 +6,9 @@ import {
   Minimize,
   Keyboard,
   Monitor,
-  Check,
   RefreshCw
 } from 'lucide-react';
-import type { PeerStats, RemoteInputEvent, ElectronSource, ConnectionStatus } from '../types';
+import type { PeerStats, RemoteInputEvent, ElectronSource, ConnectionStatus, SessionPermissions } from '../types';
 
 interface RemoteScreenViewerProps {
   remoteStream: MediaStream | null;
@@ -17,6 +16,7 @@ interface RemoteScreenViewerProps {
   sessionId: string;
   isHost: boolean;
   stats: PeerStats;
+  permissions?: SessionPermissions;
   connectionStatus?: ConnectionStatus;
   connectionDetailStatus?: string;
   screenSources?: ElectronSource[];
@@ -36,6 +36,7 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
   sessionId,
   isHost,
   stats,
+  permissions,
   connectionStatus,
   connectionDetailStatus,
   screenSources = [],
@@ -48,13 +49,48 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
+  const specialKeysRef = useRef<HTMLDivElement | null>(null);
 
   const [isInteractive, setIsInteractive] = useState(!isHost); // controllers have interactive mode on by default
   const [displayMode, setDisplayMode] = useState<'contain' | 'original'>('contain');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
-  const [showScreenMenu, setShowScreenMenu] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+
+  // Check if host permits remote mouse/keyboard control
+  const isControlPermitted = !permissions || (permissions.allowControl && (permissions.allowMouse || permissions.allowKeyboard));
+  const isMousePermitted = isControlPermitted && (!permissions || permissions.allowMouse);
+  const isKeyboardPermitted = isControlPermitted && (!permissions || permissions.allowKeyboard);
+  const effectiveInteractive = isInteractive && isControlPermitted;
+
+  // Close dropdown popups when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!showSpecialKeys) return;
+
+    const handlePointerDown = (event: PointerEvent | MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+
+      if (specialKeysRef.current && !specialKeysRef.current.contains(target)) {
+        setShowSpecialKeys(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setShowSpecialKeys(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [showSpecialKeys]);
 
   const [videoBox, setVideoBox] = useState<{ left: number; top: number; width: number; height: number }>({
     left: 0,
@@ -209,7 +245,7 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
   // Mouse event handlers
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const coords = getNormalizedCoordinates(e);
-    if (coords && isInteractive) {
+    if (coords && effectiveInteractive && isMousePermitted) {
       onSendInputEvent({
         sessionId,
         type: 'mousemove',
@@ -217,14 +253,15 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
         normalizedY: coords.y
       });
     }
-  }, [getNormalizedCoordinates, isInteractive, onSendInputEvent, sessionId]);
+  }, [getNormalizedCoordinates, effectiveInteractive, isMousePermitted, onSendInputEvent, sessionId]);
 
   const handleMouseLeave = useCallback(() => {
     // no-op
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isInteractive) return;
+    setShowSpecialKeys(false);
+    if (!effectiveInteractive || !isMousePermitted) return;
     const coords = getNormalizedCoordinates(e);
     if (!coords) return;
 
@@ -235,10 +272,10 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       normalizedY: coords.y,
       button: e.button
     });
-  }, [isInteractive, getNormalizedCoordinates, onSendInputEvent, sessionId]);
+  }, [effectiveInteractive, isMousePermitted, getNormalizedCoordinates, onSendInputEvent, sessionId]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isInteractive) return;
+    if (!effectiveInteractive || !isMousePermitted) return;
     const coords = getNormalizedCoordinates(e);
     if (!coords) return;
 
@@ -249,10 +286,10 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       normalizedY: coords.y,
       button: e.button
     });
-  }, [isInteractive, getNormalizedCoordinates, onSendInputEvent, sessionId]);
+  }, [effectiveInteractive, isMousePermitted, getNormalizedCoordinates, onSendInputEvent, sessionId]);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!isInteractive) return;
+    if (!effectiveInteractive || !isMousePermitted) return;
     const coords = getNormalizedCoordinates(e);
     if (!coords) return;
 
@@ -264,15 +301,22 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       deltaX: e.deltaX,
       deltaY: e.deltaY
     });
-  }, [isInteractive, getNormalizedCoordinates, onSendInputEvent, sessionId]);
+  }, [effectiveInteractive, isMousePermitted, getNormalizedCoordinates, onSendInputEvent, sessionId]);
 
   // Keyboard event handlers
   useEffect(() => {
-    if (!isInteractive) return;
+    if (!effectiveInteractive || !isKeyboardPermitted) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture keyboard if user is typing in an input
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // If a dropdown popup is open and Escape was pressed, dismiss it without forwarding
+      if (e.key === 'Escape' && showSpecialKeys) {
+        e.preventDefault();
+        setShowSpecialKeys(false);
         return;
       }
 
@@ -320,25 +364,29 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isInteractive, onSendInputEvent, sessionId]);
+  }, [effectiveInteractive, isKeyboardPermitted, onSendInputEvent, sessionId, showSpecialKeys]);
 
   const handleSendSpecialKey = (keyName: string) => {
-    onSendInputEvent({
-      sessionId,
-      type: 'specialkey',
-      normalizedX: 0,
-      normalizedY: 0,
-      specialKey: keyName
-    });
+    if (isKeyboardPermitted) {
+      onSendInputEvent({
+        sessionId,
+        type: 'specialkey',
+        normalizedX: 0,
+        normalizedY: 0,
+        specialKey: keyName
+      });
+    }
     setShowSpecialKeys(false);
   };
 
-  const handleSwitchScreenChoice = (sourceId: string) => {
-    setShowScreenMenu(false);
-    onSelectSourceId?.(sourceId);
-  };
-
   const formattedPeerId = remoteDeviceId.replace(/(\d{3})(?=\d)/g, '$1 ');
+
+  // Sort screens numerically ascending: Screen 1, Screen 2, Screen 3...
+  const sortedScreenSources = [...screenSources].sort((a, b) => {
+    const numA = a.displayNumber ?? (parseInt(a.name.match(/\d+/)?.[0] || '0', 10));
+    const numB = b.displayNumber ?? (parseInt(b.name.match(/\d+/)?.[0] || '0', 10));
+    return numA - numB;
+  });
 
   return (
     <div className="remote-viewer-container" ref={containerRef}>
@@ -379,59 +427,67 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
           </div>
         </div>
 
-        {/* Right Section: Action Icons matching Image 2 */}
+        {/* Right Section: Action Icons matching AnyDesk layout */}
         <div className="anydesk-bar-right">
-          {/* Display / Screen Switcher [1] */}
-          {!isHost && (
-            <div style={{ position: 'relative' }}>
-              <button
-                className={`anydesk-icon-btn ${showScreenMenu ? 'active' : ''}`}
-                onClick={() => setShowScreenMenu(!showScreenMenu)}
-                title="Select Remote Screen [1]"
-              >
-                <div className="anydesk-screen-indicator">
-                  <Monitor size={14} />
-                  <span className="screen-num">
-                    {screenSources.findIndex((s) => s.id === selectedSourceId) >= 0
-                      ? screenSources.findIndex((s) => s.id === selectedSourceId) + 1
-                      : '1'}
-                  </span>
-                </div>
-              </button>
+          {/* Display / Screen Switcher [ 1 ] [ 2 ] [ 3 ] Ascending Order, Clean Numbers (No Emoji/Icon, No Dropdown Arrow) */}
+          {!isHost && sortedScreenSources.length > 1 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              {sortedScreenSources.map((source, index) => {
+                const match = source.name.match(/\d+/);
+                const screenNum = source.displayNumber ?? (match ? match[0] : index + 1);
+                const isSelected = selectedSourceId
+                  ? selectedSourceId === source.id
+                  : (source.displayNumber === 1 || index === 0);
 
-              {showScreenMenu && (
-                <div className="anydesk-dropdown-menu">
-                  <div className="dropdown-header">Select Remote Screen</div>
-                  {screenSources.length > 0 ? (
-                    screenSources.map((source, index) => {
-                      const isSelected = selectedSourceId === source.id || (!selectedSourceId && index === 0);
-                      return (
-                        <button
-                          key={source.id || index}
-                          className={`dropdown-item ${isSelected ? 'active' : ''}`}
-                          onClick={() => handleSwitchScreenChoice(source.id)}
-                        >
-                          <Monitor size={14} color={isSelected ? 'var(--color-green)' : 'inherit'} />
-                          <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {source.name || `Display ${index + 1}`}
-                          </span>
-                          {isSelected && <Check size={13} color="var(--color-green)" />}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <button
-                      className="dropdown-item active"
-                      onClick={() => handleSwitchScreenChoice(selectedSourceId || 'screen:0:0')}
-                    >
-                      <Monitor size={14} color="var(--color-green)" />
-                      <span style={{ flex: 1, textAlign: 'left' }}>Host Primary Screen</span>
-                      <Check size={13} color="var(--color-green)" />
-                    </button>
-                  )}
-                </div>
-              )}
+                return (
+                  <button
+                    key={source.id || index}
+                    className={`anydesk-icon-btn ${isSelected ? 'active-green' : ''}`}
+                    onClick={() => onSelectSourceId?.(source.id)}
+                    title={`Screen ${screenNum}`}
+                    style={{
+                      minWidth: '28px',
+                      height: '28px',
+                      padding: '0 8px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '4px',
+                      background: isSelected ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                      border: isSelected ? '1px solid #22c55e' : '1px solid rgba(255, 255, 255, 0.12)',
+                      color: isSelected ? '#22c55e' : '#cbd5e1',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>{screenNum}</span>
+                  </button>
+                );
+              })}
             </div>
+          ) : !isHost && (
+            <button
+              className="anydesk-icon-btn active-green"
+              title="Screen 1"
+              style={{
+                minWidth: '28px',
+                height: '28px',
+                padding: '0 8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                background: 'rgba(34, 197, 94, 0.2)',
+                border: '1px solid #22c55e',
+                color: '#22c55e',
+                fontSize: '13px',
+                fontWeight: 800
+              }}
+            >
+              <span>1</span>
+            </button>
           )}
 
           {/* Scaling / Fit Toggle */}
@@ -445,25 +501,42 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
 
           {/* Input Control Toggle (Mouse pointer in top bar) */}
           <button
-            className={`anydesk-icon-btn ${isInteractive ? 'active-green' : ''}`}
-            onClick={() => setIsInteractive(!isInteractive)}
-            title={isInteractive ? 'Input Control Enabled (Click & Type Active)' : 'Input Control Disabled (View-Only Mode)'}
+            className={`anydesk-icon-btn ${effectiveInteractive ? 'active-green' : ''}`}
+            onClick={() => {
+              if (!isControlPermitted) return;
+              setIsInteractive(!isInteractive);
+            }}
+            style={{
+              opacity: isControlPermitted ? 1 : 0.45,
+              cursor: isControlPermitted ? 'pointer' : 'not-allowed'
+            }}
+            title={
+              !isControlPermitted
+                ? 'Remote Control Disabled by Host'
+                : effectiveInteractive
+                ? 'Input Control Enabled (Click & Type Active)'
+                : 'Input Control Disabled (View-Only Mode)'
+            }
           >
             <MousePointer size={15} />
           </button>
 
           {/* Special System Keys */}
           {!isHost && (
-            <div style={{ position: 'relative' }}>
+            <div ref={specialKeysRef} style={{ position: 'relative' }}>
               <button
                 className={`anydesk-icon-btn ${showSpecialKeys ? 'active' : ''}`}
-                onClick={() => setShowSpecialKeys(!showSpecialKeys)}
-                title="System Keys (Win, Alt+Tab, Ctrl+Alt+Del)"
+                onClick={() => isKeyboardPermitted && setShowSpecialKeys(!showSpecialKeys)}
+                style={{
+                  opacity: isKeyboardPermitted ? 1 : 0.45,
+                  cursor: isKeyboardPermitted ? 'pointer' : 'not-allowed'
+                }}
+                title={isKeyboardPermitted ? 'System Keys (Win, Alt+Tab, Ctrl+Alt+Del)' : 'Keyboard Control Disabled by Host'}
               >
                 <Keyboard size={15} />
               </button>
 
-              {showSpecialKeys && (
+              {showSpecialKeys && isKeyboardPermitted && (
                 <div className="anydesk-dropdown-menu">
                   <div className="dropdown-header">Send System Keys</div>
                   <button className="dropdown-item" onClick={() => handleSendSpecialKey('win')}>
@@ -500,7 +573,7 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       {/* Screen Canvas / Video Area for Controller PC (Remote Viewer) */}
       <div
         ref={canvasWrapperRef}
-        className={`screen-canvas-wrapper ${isInteractive ? 'interactive' : ''}`}
+        className={`screen-canvas-wrapper ${effectiveInteractive ? 'interactive' : ''}`}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}

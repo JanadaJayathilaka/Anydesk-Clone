@@ -181,9 +181,11 @@ export const App: React.FC = () => {
       window.electronAPI.getScreenSources().then((sources) => {
         const screensOnly = sources.filter((s) => s.id.startsWith('screen'));
         const available = screensOnly.length > 0 ? screensOnly : sources;
-        setScreenSources(available);
-        if (available.length > 0) {
-          setSelectedSourceId(available[0].id);
+        const sorted = [...available].sort((a, b) => (a.displayNumber ?? 0) - (b.displayNumber ?? 0));
+        setScreenSources(sorted);
+        const screen1 = sorted.find((s) => s.displayNumber === 1) || sorted[0];
+        if (screen1) {
+          setSelectedSourceId(screen1.id);
         }
       });
     }
@@ -236,6 +238,9 @@ export const App: React.FC = () => {
 
   const selectedSourceIdRef = useRef(selectedSourceId);
   selectedSourceIdRef.current = selectedSourceId;
+
+  const permissionsRef = useRef(permissions);
+  permissionsRef.current = permissions;
 
   const sessionApprovedHandled = useRef<string | null>(null);
 
@@ -396,11 +401,22 @@ export const App: React.FC = () => {
       webRtcService.handleSignalMessage(msg);
     };
 
+    const executeRemoteInput = (input: RemoteInputEvent) => {
+      if (!isHostRef.current || !window.electronAPI?.simulateInput) return;
+      const perms = permissionsRef.current;
+      if (!perms.allowControl) return;
+
+      const isMouse = ['mousemove', 'mousedown', 'mouseup', 'wheel'].includes(input.type);
+      const isKeyboard = ['keydown', 'keyup', 'specialkey'].includes(input.type);
+
+      if (isMouse && !perms.allowMouse) return;
+      if (isKeyboard && !perms.allowKeyboard) return;
+
+      window.electronAPI.simulateInput(input);
+    };
+
     signalRService.onReceiveInput = (input: RemoteInputEvent) => {
-      // Local hardware input execution if host
-      if (isHostRef.current && window.electronAPI?.simulateInput) {
-        window.electronAPI.simulateInput(input);
-      }
+      executeRemoteInput(input);
     };
 
     // WebRTC event subscriptions
@@ -410,12 +426,28 @@ export const App: React.FC = () => {
     };
 
     webRtcService.onRemoteInputReceived = (input) => {
-      // Direct peer-to-peer hardware input execution on host
-      if (window.electronAPI?.simulateInput) {
-        window.electronAPI.simulateInput(input);
-      }
+      executeRemoteInput(input);
     };
 
+    webRtcService.onPermissionsUpdate = (newPerms: SessionPermissions) => {
+      console.log('[App] Received permissions update from host:', newPerms);
+      setPermissions(newPerms);
+    };
+
+    webRtcService.onClipboardSyncReceived = (text: string) => {
+      if (!permissionsRef.current.allowClipboard) {
+        console.log('[App] Clipboard sync received but allowClipboard is false; dropped');
+        return;
+      }
+      if (!text || text === lastClipboardTextRef.current) return;
+      lastClipboardTextRef.current = text;
+      console.log('[App] Applying remote clipboard text');
+      if (window.electronAPI?.writeClipboard) {
+        window.electronAPI.writeClipboard(text);
+      } else if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    };
 
     webRtcService.onDetailedStatus = (status) => {
       setConnectionDetailStatus(status);
@@ -427,9 +459,13 @@ export const App: React.FC = () => {
 
     webRtcService.onHostScreensReceived = (screens, activeId) => {
       console.log('[App] Received host screens from partner:', screens, activeId);
-      setRemoteHostScreens(screens);
+      const sorted = [...screens].sort((a, b) => (a.displayNumber ?? 0) - (b.displayNumber ?? 0));
+      setRemoteHostScreens(sorted);
       if (activeId) {
         setSelectedSourceId(activeId);
+      } else if (sorted.length > 0 && !selectedSourceIdRef.current) {
+        const screen1 = sorted.find((s) => s.displayNumber === 1) || sorted[0];
+        setSelectedSourceId(screen1.id);
       }
     };
 
@@ -438,12 +474,27 @@ export const App: React.FC = () => {
       setSelectedSourceId(activeId);
     };
 
-    webRtcService.onControlChannelOpen = () => {
+    webRtcService.onControlChannelOpen = async () => {
       if (isHostRef.current) {
-        const screens: ElectronSource[] = screenSourcesRef.current.length > 0 ? screenSourcesRef.current : [
-          { id: 'screen:0:0', name: 'Primary Display 1', thumbnail: null },
-          { id: 'screen:1:0', name: 'Secondary Display 2', thumbnail: null }
-        ];
+        let screens: ElectronSource[] = screenSourcesRef.current;
+        if (screens.length === 0 && window.electronAPI?.getScreenSources) {
+          try {
+            const fresh = await window.electronAPI.getScreenSources();
+            const scrs = fresh.filter((s) => s.id.startsWith('screen'));
+            if (scrs.length > 0) {
+              screens = [...scrs].sort((a, b) => (a.displayNumber ?? 0) - (b.displayNumber ?? 0));
+              setScreenSources(screens);
+              screenSourcesRef.current = screens;
+            }
+          } catch (e) {
+            console.error('[App] Failed to fetch fresh screens on control channel open:', e);
+          }
+        }
+        if (screens.length === 0) {
+          screens = [
+            { id: 'screen:0:0', name: 'Screen 1', displayNumber: 1, thumbnail: null }
+          ];
+        }
         webRtcService.setHostScreensList(screens, selectedSourceIdRef.current || screens[0]?.id);
       } else {
         webRtcService.sendControlCommand({ type: 'request-screens' });
@@ -618,14 +669,15 @@ export const App: React.FC = () => {
         const fresh = await window.electronAPI.getScreenSources();
         const scrs = fresh.filter((s) => s.id.startsWith('screen'));
         if (scrs.length > 0) {
-          screensToSend = scrs;
-          setScreenSources(scrs);
+          screensToSend = [...scrs].sort((a, b) => (a.displayNumber ?? 0) - (b.displayNumber ?? 0));
+          setScreenSources(screensToSend);
+          screenSourcesRef.current = screensToSend;
         }
       } catch { }
     }
     if (screensToSend.length === 0) {
       screensToSend = [
-        { id: 'screen:0:0', name: 'Primary Display 1', thumbnail: null }
+        { id: 'screen:0:0', name: 'Screen 1', displayNumber: 1, thumbnail: null }
       ];
     }
     webRtcService.setHostScreensList(screensToSend, selectedSourceId || screensToSend[0]?.id);
@@ -669,6 +721,56 @@ export const App: React.FC = () => {
     });
   };
 
+  // Bidirectional Clipboard Synchronization during active session
+  const lastClipboardTextRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!activeSessionId || !permissions.allowClipboard) {
+      return;
+    }
+
+    const checkAndSyncLocalClipboard = async () => {
+      try {
+        let text = '';
+        if (window.electronAPI?.readClipboard) {
+          text = await window.electronAPI.readClipboard();
+        } else if (navigator.clipboard?.readText) {
+          text = await navigator.clipboard.readText();
+        }
+
+        if (text && text !== lastClipboardTextRef.current) {
+          lastClipboardTextRef.current = text;
+          webRtcService.sendControlCommand({
+            type: 'clipboard-sync',
+            text
+          });
+        }
+      } catch (e) {
+        // clipboard permission / empty
+      }
+    };
+
+    const interval = setInterval(checkAndSyncLocalClipboard, 800);
+
+    const onWindowFocus = () => {
+      checkAndSyncLocalClipboard();
+    };
+    window.addEventListener('focus', onWindowFocus);
+
+    const onCopyCut = () => {
+      setTimeout(checkAndSyncLocalClipboard, 60);
+    };
+    window.addEventListener('copy', onCopyCut);
+    window.addEventListener('cut', onCopyCut);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onWindowFocus);
+      window.removeEventListener('copy', onCopyCut);
+      window.removeEventListener('cut', onCopyCut);
+    };
+  }, [activeSessionId, permissions.allowClipboard]);
+
   // Host rejects connection
   const handleRejectIncoming = async () => {
     if (!incomingRequest) return;
@@ -696,6 +798,7 @@ export const App: React.FC = () => {
 
   // Switch Screen without ending session - Both Host and Controller can switch screen!
   const handleSwitchScreen = async (newSourceId: string) => {
+    if (newSourceId === selectedSourceIdRef.current) return;
     setSelectedSourceId(newSourceId);
     if (isHostRef.current) {
       console.log('[App] Host directly switching active screen broadcast to:', newSourceId);
@@ -703,15 +806,6 @@ export const App: React.FC = () => {
     } else {
       console.log('[App] Controller requesting Host to switch screen to:', newSourceId);
       webRtcService.sendControlCommand({ type: 'switch-screen', sourceId: newSourceId });
-      if (activeSessionIdRef.current && activePeerIdRef.current) {
-        signalRService.sendSignal({
-          sessionId: activeSessionIdRef.current,
-          senderDeviceId: deviceIdRef.current,
-          targetDeviceId: activePeerIdRef.current,
-          type: 'command',
-          payload: { type: 'switch-screen', sourceId: newSourceId }
-        }).catch(() => { });
-      }
     }
   };
 
@@ -879,6 +973,7 @@ export const App: React.FC = () => {
           sessionId={activeSessionId}
           isHost={false}
           stats={peerStats}
+          permissions={permissions}
           connectionStatus={connectionStatus}
           connectionDetailStatus={connectionDetailStatus}
           screenSources={remoteHostScreens}

@@ -1,4 +1,4 @@
-import type { PeerStats, RemoteInputEvent, SignalMessage, ElectronSource } from '../types';
+import type { PeerStats, RemoteInputEvent, SignalMessage, ElectronSource, SessionPermissions } from '../types';
 import { signalRService } from './signalRService';
 
 export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -49,6 +49,8 @@ export class WebRtcService {
   private localOffer: RTCSessionDescriptionInit | null = null;
   private offerRetransmitInterval: any = null;
   private requestOfferInterval: any = null;
+  private currentTargetBitrate: number = 16_000_000; // Auto 16 Mbps max bitrate ceiling
+  private isSwitchingScreen: boolean = false;
 
   public setMyLanIp(ip: string) {
     this.myLanIp = ip;
@@ -69,6 +71,8 @@ export class WebRtcService {
   public onControlChannelOpen: (() => void) | null = null;
   public onHostCursorPositionReceived: ((pos: { x: number; y: number }) => void) | null = null;
   public onHostApprovedSignalReceived: ((sessionId: string, senderDeviceId: string) => void) | null = null;
+  public onPermissionsUpdate: ((perms: SessionPermissions) => void) | null = null;
+  public onClipboardSyncReceived: ((text: string) => void) | null = null;
 
   public setHostScreensList(screens: ElectronSource[], activeSourceId?: string) {
     this.hostScreensList = screens;
@@ -99,18 +103,26 @@ export class WebRtcService {
     let chosenSourceId = sourceId;
 
     if (chosenSourceId && window.electronAPI?.setActiveDisplay) {
-      window.electronAPI.setActiveDisplay(chosenSourceId);
+      await window.electronAPI.setActiveDisplay(chosenSourceId);
     }
 
     // 1. Standard getDisplayMedia flow (handled seamlessly by Electron setDisplayMediaRequestHandler)
     if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
+          video: {
+            width: { ideal: 3840, max: 7680 },
+            height: { ideal: 2160, max: 4320 },
+            frameRate: { ideal: 60, max: 60 }
+          },
           audio: false
         });
         if (stream && stream.getVideoTracks().length > 0) {
-          console.log('[WebRTC] Successfully acquired screen stream via getDisplayMedia');
+          const track = stream.getVideoTracks()[0];
+          if ('contentHint' in track) {
+            track.contentHint = 'detail';
+          }
+          console.log('[WebRTC AutoQuality] Screen stream acquired via getDisplayMedia (Native/4K)');
           return stream;
         }
       } catch (err) {
@@ -122,10 +134,10 @@ export class WebRtcService {
     if (!chosenSourceId && window.electronAPI?.getScreenSources) {
       try {
         const sources = await window.electronAPI.getScreenSources();
-        const primary = sources.find((s) => s.id.startsWith('screen')) || sources[0];
+        const primary = sources.find((s) => s.id.startsWith('screen') && s.displayNumber === 1) || sources.find((s) => s.id.startsWith('screen')) || sources[0];
         if (primary) {
           chosenSourceId = primary.id;
-          console.log('[WebRTC] Auto-selected screen source:', primary.name, primary.id);
+          console.log('[WebRTC] Auto-selected screen source (Screen 1):', primary.name, primary.id);
         }
       } catch (err) {
         console.warn('[WebRTC] getScreenSources auto-select error:', err);
@@ -141,16 +153,20 @@ export class WebRtcService {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: chosenSourceId,
               minWidth: 1280,
-              maxWidth: 1920,
+              maxWidth: 7680,
               minHeight: 720,
-              maxHeight: 1080,
+              maxHeight: 4320,
               maxFrameRate: 60
             }
           }
         };
         const stream = await (navigator.mediaDevices as any).getUserMedia(constraints);
         if (stream && stream.getVideoTracks().length > 0) {
-          console.log('[WebRTC] Successfully acquired screen stream via Electron desktop capturer');
+          const track = stream.getVideoTracks()[0];
+          if ('contentHint' in track) {
+            track.contentHint = 'detail';
+          }
+          console.log('[WebRTC AutoQuality] Screen stream acquired via desktopCapturer (Native/4K)');
           return stream;
         }
       } catch (err) {
@@ -167,8 +183,8 @@ export class WebRtcService {
     this.stopVirtualDisplay();
 
     const canvas = document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 720;
+    canvas.width = 1920;
+    canvas.height = 1080;
     const ctx = canvas.getContext('2d')!;
 
     let frame = 0;
@@ -230,6 +246,40 @@ export class WebRtcService {
     }
   }
 
+  // Automatic high-bitrate and quality parameter configuration for RTCRtpSender
+  private async applyAutoQualitySenderParameters(
+    sender: RTCRtpSender,
+    targetBitrate: number = this.currentTargetBitrate
+  ): Promise<void> {
+    try {
+      if (!sender || !sender.getParameters) return;
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = targetBitrate;
+      (params.encodings[0] as any).minBitrate = 500_000;
+      params.encodings[0].maxFramerate = 60;
+      params.encodings[0].scaleResolutionDownBy = 1.0;
+      (params.encodings[0] as any).networkPriority = 'high';
+      (params as any).degradationPreference = 'maintain-resolution';
+      await sender.setParameters(params);
+      console.log(`[WebRTC AutoQuality] Set sender encoding: ${(targetBitrate / 1_000_000).toFixed(1)} Mbps, 60fps, maintain-resolution`);
+    } catch (err) {
+      console.warn('[WebRTC AutoQuality] Note setting sender parameters:', err);
+    }
+  }
+
+  // Automatically tunes SDP bandwidth lines for video media section
+  private tuneSdpBandwidth(sdp: string, bitrateKbps: number = 16000): string {
+    if (!sdp) return sdp;
+    const cleaned = sdp.replace(/b=(AS|TIAS):[^\r\n]*\r?\n/g, '');
+    return cleaned.replace(
+      /(m=video [^\r\n]*\r?\n)/g,
+      `$1b=AS:${bitrateKbps}\r\nb=TIAS:${bitrateKbps * 1000}\r\n`
+    );
+  }
+
   public async startHostSessionWithStream(
     sessionId: string,
     hostDeviceId: string,
@@ -261,6 +311,9 @@ export class WebRtcService {
     // 3. Add Screen Tracks to PeerConnection with explicit sendonly transceiver direction
     this.localStream.getTracks().forEach((track) => {
       console.log('[WebRTC Host] Adding track to PC:', track.kind, track.label, 'readyState:', track.readyState);
+      if (track.kind === 'video' && 'contentHint' in track) {
+        track.contentHint = 'detail';
+      }
       const sender = this.peerConnection?.addTrack(track, this.localStream!);
       const transceiver = this.peerConnection?.getTransceivers().find((t) => t.sender === sender);
       if (transceiver) {
@@ -268,13 +321,21 @@ export class WebRtcService {
       }
     });
 
-    // 4. Create Host Offer (includes the video track + data channel in SDP)
+    // 4. Create Host Offer (includes the video track + data channel in SDP) with tuned bandwidth
     const offer = await this.peerConnection.createOffer();
-    await this.peerConnection.setLocalDescription(offer);
-    this.localOffer = {
+    const tunedOfferSdp = this.tuneSdpBandwidth(offer.sdp || '', 16000);
+    const finalOffer = {
       type: offer.type,
-      sdp: offer.sdp
+      sdp: tunedOfferSdp
     };
+    await this.peerConnection.setLocalDescription(finalOffer);
+    this.localOffer = finalOffer;
+
+    // Apply auto quality sender parameters to all video senders
+    const videoSenders = this.peerConnection.getSenders().filter((s) => s.track && s.track.kind === 'video');
+    for (const sender of videoSenders) {
+      await this.applyAutoQualitySenderParameters(sender);
+    }
 
     // 5. Send Offer to Controller and periodically retransmit until answered/connected
     console.log('[WebRTC Host] Sending Offer to controller:', controllerDeviceId);
@@ -562,9 +623,15 @@ export class WebRtcService {
           this.onHostCursorPositionReceived?.({ x: data.x, y: data.y });
           return;
         }
-        if (data.type === 'switch-sides') {
-          console.log('[WebRTC] Received switch-sides command');
-          this.onSwitchSidesRequested?.();
+        if (data.type === 'permissions-update') {
+          console.log('[WebRTC] Received permissions-update over datachannel:', data.permissions);
+          this.onPermissionsUpdate?.(data.permissions);
+          return;
+        }
+        if (data.type === 'clipboard-sync') {
+          if (typeof data.text === 'string') {
+            this.onClipboardSyncReceived?.(data.text);
+          }
           return;
         }
         this.onRemoteInputReceived?.(data);
@@ -658,8 +725,13 @@ export class WebRtcService {
         await this.flushPendingCandidates();
 
         const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-        console.log('[WebRTC Controller] Created Answer and set local description');
+        const tunedAnswerSdp = this.tuneSdpBandwidth(answer.sdp || '', 16000);
+        const finalAnswer = {
+          type: answer.type,
+          sdp: tunedAnswerSdp
+        };
+        await this.peerConnection.setLocalDescription(finalAnswer);
+        console.log('[WebRTC Controller] Created Answer and set local description with auto high-bitrate');
 
         await signalRService.sendSignal({
           sessionId: this.sessionId || message.sessionId || message.SessionId,
@@ -667,8 +739,8 @@ export class WebRtcService {
           targetDeviceId: this.targetDeviceId || message.senderDeviceId || message.SenderDeviceId,
           type: 'answer',
           payload: {
-            type: answer.type,
-            sdp: answer.sdp
+            type: finalAnswer.type,
+            sdp: finalAnswer.sdp
           }
         });
         console.log('[WebRTC Controller] Answer sent to Host');
@@ -706,6 +778,12 @@ export class WebRtcService {
         console.log('[WebRTC Host] Set remote description (Answer) success');
 
         await this.flushPendingCandidates();
+
+        // Enforce auto high-bitrate sender parameters once connection is answered
+        const videoSenders = this.peerConnection.getSenders().filter((s) => s.track && s.track.kind === 'video');
+        for (const sender of videoSenders) {
+          this.applyAutoQualitySenderParameters(sender).catch(() => {});
+        }
       } else if (type === 'candidate') {
         let candObj = rawPayload;
         if (typeof rawPayload === 'string') {
@@ -797,6 +875,13 @@ export class WebRtcService {
           this.onHostCursorPositionReceived?.({ x: cmd.x, y: cmd.y });
         } else if (cmd?.type === 'switch-sides') {
           this.onSwitchSidesRequested?.();
+        } else if (cmd?.type === 'permissions-update') {
+          console.log('[WebRTC] Received permissions-update via signal:', cmd.permissions);
+          this.onPermissionsUpdate?.(cmd.permissions);
+        } else if (cmd?.type === 'clipboard-sync') {
+          if (typeof cmd.text === 'string') {
+            this.onClipboardSyncReceived?.(cmd.text);
+          }
         }
       }
     } catch (err: any) {
@@ -859,11 +944,24 @@ export class WebRtcService {
 
   public async switchScreenSource(newSourceId?: string): Promise<boolean> {
     if (!this.peerConnection) return false;
+    if (this.isSwitchingScreen) {
+      console.log('[WebRTC] Screen switch already in progress, ignoring duplicate for:', newSourceId);
+      return false;
+    }
+    if (newSourceId && newSourceId === this.currentSourceId) {
+      console.log('[WebRTC] Screen already active:', newSourceId);
+      return true;
+    }
+
+    this.isSwitchingScreen = true;
     try {
       console.log('[WebRTC] Switching screen source to:', newSourceId);
       const newStream = await this.acquireScreenStream(newSourceId);
       const newVideoTrack = newStream.getVideoTracks()[0];
       if (!newVideoTrack) return false;
+      if ('contentHint' in newVideoTrack) {
+        newVideoTrack.contentHint = 'detail';
+      }
 
       // Stop previous local stream tracks
       if (this.localStream) {
@@ -877,7 +975,8 @@ export class WebRtcService {
                           senders.find((s) => s.track === null);
       if (videoSender) {
         await videoSender.replaceTrack(newVideoTrack);
-        console.log('[WebRTC] Successfully replaced screen video track with replaceTrack!');
+        await this.applyAutoQualitySenderParameters(videoSender);
+        console.log('[WebRTC] Successfully replaced screen video track with auto quality');
       }
 
       this.currentSourceId = newSourceId || '';
@@ -885,7 +984,7 @@ export class WebRtcService {
 
       // Tell Electron on Host to update active display for mouse coordinates
       if (window.electronAPI?.setActiveDisplay && newSourceId) {
-        window.electronAPI.setActiveDisplay(newSourceId);
+        await window.electronAPI.setActiveDisplay(newSourceId);
       }
 
       // Notify controller that the host has completed switching screen
@@ -894,22 +993,11 @@ export class WebRtcService {
         activeSourceId: newSourceId
       });
 
-      if (this.sessionId && this.targetDeviceId) {
-        signalRService.sendSignal({
-          sessionId: this.sessionId,
-          senderDeviceId: this.currentDeviceId,
-          targetDeviceId: this.targetDeviceId,
-          type: 'command',
-          payload: {
-            type: 'host-screen-switched',
-            activeSourceId: newSourceId
-          }
-        }).catch(() => {});
-      }
-
       return true;
     } catch (err) {
       console.error('[WebRTC] Error switching screen source:', err);
+    } finally {
+      this.isSwitchingScreen = false;
     }
     return false;
   }
@@ -940,6 +1028,25 @@ export class WebRtcService {
             }
           }
         });
+
+        // Automatic congestion & quality adaptation without user interaction
+        if (this.isHostRole && this.peerConnection) {
+          const videoSenders = this.peerConnection.getSenders().filter((s) => s.track && s.track.kind === 'video');
+          if (videoSenders.length > 0) {
+            if ((rtt > 180 || packetsLost > 25) && this.currentTargetBitrate > 6_000_000) {
+              this.currentTargetBitrate = 6_000_000;
+              console.log('[WebRTC AutoQuality] High latency or packet loss, auto-adjusting bitrate to 6 Mbps');
+              for (const s of videoSenders) {
+                this.applyAutoQualitySenderParameters(s, this.currentTargetBitrate).catch(() => {});
+              }
+            } else if (rtt > 0 && rtt < 70 && packetsLost === 0 && this.currentTargetBitrate < 16_000_000) {
+              this.currentTargetBitrate = 16_000_000;
+              for (const s of videoSenders) {
+                this.applyAutoQualitySenderParameters(s, this.currentTargetBitrate).catch(() => {});
+              }
+            }
+          }
+        }
 
         const isConnected = this.peerConnection.iceConnectionState === 'connected' || this.peerConnection.iceConnectionState === 'completed';
         this.onStatsUpdate?.({

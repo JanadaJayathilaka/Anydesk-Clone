@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Check, Activity, Server, Laptop, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { DEFAULT_SERVER_URL, isLocalOrPrivateIp } from '../utils/networkUtils';
 
@@ -29,6 +29,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     status: 'idle',
     message: ''
   });
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const isAwsServer = currentUrl.trim().replace(/\/+$/, '') === DEFAULT_SERVER_URL;
   const isLocalUrl = isLocalOrPrivateIp(currentUrl);
@@ -63,8 +74,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-dialog" style={{ maxWidth: '540px' }}>
+    <div
+      className="modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="modal-dialog" style={{ maxWidth: '540px' }} onClick={(e) => e.stopPropagation()}>
         <div
           style={{
             padding: '16px 20px',
@@ -154,6 +172,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </label>
             <input
+              disabled={true}
               type="text"
               className="settings-input"
               value={currentUrl}
@@ -186,6 +205,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </button>
               <button
+                disabled={true}
                 type="button"
                 style={{
                   background: 'rgba(255, 255, 255, 0.06)',
@@ -235,7 +255,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 className="btn-toolbar"
-                style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-color)',
+                  padding: '8px 14px'
+                }}
                 onClick={handleTestConnection}
                 disabled={testResult.status === 'testing'}
               >
@@ -257,11 +281,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       : 'var(--color-primary-light)',
                   color:
                     testResult.status === 'success' ? 'var(--color-green)' : 'var(--color-primary)',
-                  border: `1px solid ${
-                    testResult.status === 'success'
-                      ? 'rgba(16, 185, 129, 0.3)'
-                      : 'rgba(239, 68, 59, 0.3)'
-                  }`
+                  border: `1px solid ${testResult.status === 'success'
+                    ? 'rgba(16, 185, 129, 0.3)'
+                    : 'rgba(239, 68, 59, 0.3)'
+                    }`
                 }}
               >
                 {testResult.message}
@@ -281,6 +304,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         >
           <button
             className="btn-toolbar"
+            style={{ padding: '10px 20px' }}
             onClick={onClose}
           >
             Cancel

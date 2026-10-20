@@ -66,19 +66,21 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
   }, [showPreview, localStream]);
 
   const toggleMouseControl = () => {
+    const nextVal = !permissions.allowControl;
     const updated = {
       ...permissions,
-      allowControl: !permissions.allowControl,
-      allowMouse: !permissions.allowMouse,
-      allowKeyboard: !permissions.allowKeyboard
+      allowControl: nextVal,
+      allowMouse: nextVal,
+      allowKeyboard: nextVal
     };
     onUpdatePermissions(updated);
   };
 
   const toggleClipboard = () => {
+    const nextVal = !permissions.allowClipboard;
     const updated = {
       ...permissions,
-      allowClipboard: !permissions.allowClipboard
+      allowClipboard: nextVal
     };
     onUpdatePermissions(updated);
   };
@@ -216,26 +218,37 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
                 <Layers size={18} style={{ color: '#38bdf8' }} />
                 <span style={{ fontSize: '13px', fontWeight: 600 }}>Active Screen Broadcast</span>
               </div>
-              <select
-                value={selectedSourceId}
-                onChange={(e) => onSelectSourceId(e.target.value)}
-                style={{
-                  background: '#131722',
-                  color: '#fff',
-                  border: '1px solid #334155',
-                  borderRadius: '6px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                {screenSources.map((src) => (
-                  <option key={src.id} value={src.id}>
-                    {src.name}
-                  </option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {[...screenSources].sort((a, b) => (a.displayNumber ?? 0) - (b.displayNumber ?? 0)).map((src, idx) => {
+                  const screenNum = src.displayNumber ?? (idx + 1);
+                  const isSelected = selectedSourceId === src.id;
+                  return (
+                    <button
+                      key={src.id}
+                      onClick={() => onSelectSourceId(src.id)}
+                      title={`Screen ${screenNum}`}
+                      style={{
+                        minWidth: '32px',
+                        height: '32px',
+                        padding: '0 10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '6px',
+                        background: isSelected ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                        border: isSelected ? '1px solid #22c55e' : '1px solid rgba(255, 255, 255, 0.15)',
+                        color: isSelected ? '#22c55e' : '#cbd5e1',
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {screenNum}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

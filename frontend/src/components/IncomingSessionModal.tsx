@@ -48,8 +48,15 @@ export const IncomingSessionModal: React.FC<IncomingSessionModalProps> = ({
   const formattedCallerId = controllerDeviceId.replace(/(\d{3})(?=\d)/g, '$1 ');
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-dialog">
+    <div
+      className="modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onReject();
+        }
+      }}
+    >
+      <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="incoming-modal-header">
           <div className="caller-avatar">
             <UserCheck size={32} />

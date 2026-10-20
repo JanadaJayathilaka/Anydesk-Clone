@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, Menu, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, Menu, screen, clipboard } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -484,6 +484,8 @@ ipcMain.handle('backend:info', async () => {
   };
 });
 
+const displayBoundsBySourceId = new Map();
+
 ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
   try {
     const types = (opts && opts.types) ? opts.types : ['screen'];
@@ -493,12 +495,93 @@ ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
       fetchWindowIcons: false
     });
 
-    return sources.map((source) => ({
-      id: source.id,
-      name: source.name,
-      thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null,
-      display_id: source.display_id
+    const screenSources = sources.filter((s) => s.id.startsWith('screen'));
+    if (screenSources.length === 0) {
+      return sources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null,
+        display_id: source.display_id
+      }));
+    }
+
+    const displays = screen.getAllDisplays();
+    const primaryDisplay = screen.getPrimaryDisplay();
+
+    // 1. Sort all displays by physical layout: left-to-right (bounds.x), then top-to-bottom (bounds.y)
+    // Matches the physical monitors on the user's desk (e.g. [ 3 ] [ 1 ] [ 2 ] => 1, 2, 3)
+    const sortedDisplays = [...displays].sort((a, b) => {
+      if (a.bounds.x !== b.bounds.x) return a.bounds.x - b.bounds.x;
+      return a.bounds.y - b.bounds.y;
+    });
+
+    displayBoundsBySourceId.clear();
+
+    // 2. Track assigned sources so each display gets a unique capture source without duplicates
+    const usedSourceIds = new Set();
+
+    // 3. Pair each display with its desktopCapturer source and assign numbers 1, 2, 3... from left to right
+    const mappedScreens = sortedDisplays.map((disp, idx) => {
+      const displayNumber = idx + 1; // 1 for leftmost, 2 for middle, 3 for rightmost
+
+      // Try exact display_id match first (if supported by platform)
+      let matchedSource = screenSources.find(
+        (s) => !usedSourceIds.has(s.id) && s.display_id && s.display_id === disp.id.toString()
+      );
+
+      // Windows multi-monitor matching: match based on primary vs left vs right
+      if (!matchedSource) {
+        if (disp.id === primaryDisplay.id) {
+          // Center primary display -> Screen 1 in Chromium desktopCapturer (screen:0:0)
+          matchedSource = screenSources.find(
+            (s) => !usedSourceIds.has(s.id) && (s.name === 'Screen 1' || s.id === 'screen:0:0')
+          );
+        } else if (disp.bounds.x < primaryDisplay.bounds.x) {
+          // Leftmost display (e.g. x: -1536) -> Screen 3 in Chromium desktopCapturer (screen:2:0)
+          matchedSource = screenSources.find(
+            (s) => !usedSourceIds.has(s.id) && (s.name === 'Screen 3' || s.id === 'screen:2:0')
+          );
+        } else {
+          // Rightmost display (e.g. x: 1920) -> Screen 2 in Chromium desktopCapturer (screen:1:0)
+          matchedSource = screenSources.find(
+            (s) => !usedSourceIds.has(s.id) && (s.name === 'Screen 2' || s.id === 'screen:1:0')
+          );
+        }
+      }
+
+      // Fallback: pick any unused screen source, or index-based fallback
+      if (!matchedSource) {
+        matchedSource = screenSources.find((s) => !usedSourceIds.has(s.id)) || screenSources[idx] || screenSources[0];
+      }
+
+      if (matchedSource) {
+        usedSourceIds.add(matchedSource.id);
+        displayBoundsBySourceId.set(matchedSource.id, disp.bounds);
+      }
+
+      return {
+        id: matchedSource ? matchedSource.id : `screen:${idx}:0`,
+        name: `Screen ${displayNumber}`,
+        displayNumber: displayNumber,
+        thumbnail: matchedSource && matchedSource.thumbnail ? matchedSource.thumbnail.toDataURL() : null,
+        display_id: disp.id.toString(),
+        bounds: disp.bounds,
+        isPrimary: disp.id === primaryDisplay.id,
+        x: disp.bounds.x,
+        y: disp.bounds.y,
+        width: disp.bounds.width,
+        height: disp.bounds.height
+      };
+    });
+
+    const windowSources = sources.filter((s) => !s.id.startsWith('screen')).map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail ? s.thumbnail.toDataURL() : null,
+      display_id: s.display_id
     }));
+
+    return [...mappedScreens, ...windowSources];
   } catch (err) {
     console.error('Error fetching screen sources:', err);
     return [];
@@ -508,12 +591,18 @@ ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
 let activeDisplayBounds = null;
 let activeScreenSourceId = null;
 
-ipcMain.on('session:set-active-display', (event, sourceId) => {
+ipcMain.handle('session:set-active-display', (event, sourceId) => {
   try {
     activeScreenSourceId = sourceId || null;
+    console.log('[NativeInput] Received session:set-active-display:', sourceId);
     if (!sourceId) {
       activeDisplayBounds = null;
-      return;
+      return true;
+    }
+    if (displayBoundsBySourceId.has(sourceId)) {
+      activeDisplayBounds = displayBoundsBySourceId.get(sourceId);
+      console.log('[NativeInput] Set active display bounds from mapped cache:', activeDisplayBounds);
+      return true;
     }
     const displays = screen.getAllDisplays();
     let matchedDisplay = displays.find((d) => sourceId.includes(d.id.toString()));
@@ -532,8 +621,10 @@ ipcMain.on('session:set-active-display', (event, sourceId) => {
     } else {
       activeDisplayBounds = null;
     }
+    return true;
   } catch (e) {
     console.warn('[NativeInput] Error setting active display:', e);
+    return false;
   }
 });
 
@@ -547,6 +638,23 @@ ipcMain.on('session:start-cursor-broadcast', () => {
 
 ipcMain.on('session:stop-cursor-broadcast', () => {
   cursorBroadcastActive = false;
+});
+
+// Native Clipboard Synchronization
+ipcMain.handle('clipboard:read-text', () => {
+  try {
+    return clipboard.readText();
+  } catch (err) {
+    return '';
+  }
+});
+
+ipcMain.on('clipboard:write-text', (_event, text) => {
+  try {
+    if (typeof text === 'string') {
+      clipboard.writeText(text);
+    }
+  } catch (err) {}
 });
 
 setInterval(() => {
@@ -779,10 +887,52 @@ app.whenReady().then(async () => {
         const screens = sources.filter((s) => s.id.startsWith('screen'));
         let chosen = null;
         if (activeScreenSourceId) {
-          chosen = sources.find((s) => s.id === activeScreenSourceId || (s.id && activeScreenSourceId && s.id.includes(activeScreenSourceId)));
+          // 1. Direct ID match
+          chosen = screens.find((s) => s.id === activeScreenSourceId) ||
+                   sources.find((s) => s.id === activeScreenSourceId);
+
+          // 2. Match by substring
+          if (!chosen) {
+            chosen = screens.find((s) => s.id.includes(activeScreenSourceId) || activeScreenSourceId.includes(s.id));
+          }
+
+          // 3. Match by index if formatted like screen:idx:0
+          if (!chosen) {
+            const parts = activeScreenSourceId.split(':');
+            if (parts.length >= 2) {
+              const idx = parseInt(parts[1], 10);
+              if (!isNaN(idx) && screens[idx]) {
+                chosen = screens[idx];
+              }
+            }
+          }
         }
-        if (!chosen || !chosen.id.startsWith('screen')) {
-          chosen = screens[0] || chosen || sources[0];
+
+        // Only default to leftmost physical display (Screen 1) if activeScreenSourceId was never specified
+        if (!chosen && !activeScreenSourceId) {
+          const displays = screen.getAllDisplays();
+          const primaryDisplay = screen.getPrimaryDisplay();
+          const sortedDisplays = [...displays].sort((a, b) => {
+            if (a.bounds.x !== b.bounds.x) return a.bounds.x - b.bounds.x;
+            return a.bounds.y - b.bounds.y;
+          });
+          const firstDisp = sortedDisplays[0];
+          if (firstDisp) {
+            let matched = screens.find((s) => s.display_id && s.display_id === firstDisp.id.toString());
+            if (!matched) {
+              if (firstDisp.id === primaryDisplay.id) {
+                matched = screens.find((s) => s.name === 'Screen 1' || s.id === 'screen:0:0');
+              } else if (firstDisp.bounds.x < primaryDisplay.bounds.x) {
+                matched = screens.find((s) => s.name === 'Screen 3' || s.id === 'screen:2:0');
+              } else {
+                matched = screens.find((s) => s.name === 'Screen 2' || s.id === 'screen:1:0');
+              }
+            }
+            if (matched) chosen = matched;
+          }
+          if (!chosen) {
+            chosen = screens[0] || sources[0];
+          }
         }
         if (chosen) {
           console.log('[DisplayMedia] Serving screen source for getDisplayMedia:', chosen.name, chosen.id);
