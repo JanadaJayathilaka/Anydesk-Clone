@@ -128,6 +128,8 @@ export interface ElectronAPI {
   writeClipboard?: (text: string) => void;
   getScreenAccessStatus?: () => Promise<string>;
   openScreenPreferences?: () => Promise<boolean>;
+  checkAccessibility?: () => Promise<boolean>;
+  openAccessibilityPreferences?: () => Promise<boolean>;
 }
 
 declare global {

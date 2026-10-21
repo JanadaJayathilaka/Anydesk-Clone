@@ -29,5 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readClipboard: () => ipcRenderer.invoke('clipboard:read-text'),
   writeClipboard: (text) => ipcRenderer.send('clipboard:write-text', text),
   getScreenAccessStatus: () => ipcRenderer.invoke('system:get-screen-access-status'),
-  openScreenPreferences: () => ipcRenderer.invoke('system:open-screen-preferences')
+  openScreenPreferences: () => ipcRenderer.invoke('system:open-screen-preferences'),
+  checkAccessibility: () => ipcRenderer.invoke('system:check-accessibility'),
+  openAccessibilityPreferences: () => ipcRenderer.invoke('system:open-accessibility-preferences')
 });

@@ -113,14 +113,14 @@ export class WebRtcService {
           video: {
             width: { ideal: 1920, max: 3840 },
             height: { ideal: 1080, max: 2160 },
-            frameRate: { ideal: 60, max: 60 }
+            frameRate: { ideal: 30, max: 60 }
           },
           audio: false
         });
         if (stream && stream.getVideoTracks().length > 0) {
           const track = stream.getVideoTracks()[0];
           if ('contentHint' in track) {
-            track.contentHint = 'detail';
+            track.contentHint = 'motion';
           }
           console.log('[WebRTC AutoQuality] Screen stream acquired via getDisplayMedia (Native/4K)');
           return stream;
@@ -162,7 +162,7 @@ export class WebRtcService {
         if (stream && stream.getVideoTracks().length > 0) {
           const track = stream.getVideoTracks()[0];
           if ('contentHint' in track) {
-            track.contentHint = 'detail';
+            track.contentHint = 'motion';
           }
           console.log('[WebRTC AutoQuality] Screen stream acquired via desktopCapturer (Native/4K)');
           return stream;
@@ -260,9 +260,9 @@ export class WebRtcService {
       params.encodings[0].maxFramerate = 60;
       params.encodings[0].scaleResolutionDownBy = 1.0;
       (params.encodings[0] as any).networkPriority = 'high';
-      (params as any).degradationPreference = 'maintain-resolution';
+      (params as any).degradationPreference = 'balanced';
       await sender.setParameters(params);
-      console.log(`[WebRTC AutoQuality] Set sender encoding: ${(targetBitrate / 1_000_000).toFixed(1)} Mbps, 60fps, maintain-resolution`);
+      console.log(`[WebRTC AutoQuality] Set sender encoding: ${(targetBitrate / 1_000_000).toFixed(1)} Mbps, 60fps, balanced`);
     } catch (err) {
       console.warn('[WebRTC AutoQuality] Note setting sender parameters:', err);
     }
@@ -310,7 +310,7 @@ export class WebRtcService {
     this.localStream.getTracks().forEach((track) => {
       console.log('[WebRTC Host] Adding track to PC:', track.kind, track.label, 'readyState:', track.readyState);
       if (track.kind === 'video' && 'contentHint' in track) {
-        track.contentHint = 'detail';
+        track.contentHint = 'motion';
       }
       const sender = this.peerConnection?.addTrack(track, this.localStream!);
       const transceiver = this.peerConnection?.getTransceivers().find((t) => t.sender === sender);
@@ -958,7 +958,7 @@ export class WebRtcService {
       const newVideoTrack = newStream.getVideoTracks()[0];
       if (!newVideoTrack) return false;
       if ('contentHint' in newVideoTrack) {
-        newVideoTrack.contentHint = 'detail';
+        newVideoTrack.contentHint = 'motion';
       }
 
       // Stop previous local stream tracks

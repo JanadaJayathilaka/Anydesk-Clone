@@ -28,6 +28,10 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "asar": true,
+    "asarUnpack": [
+      "**/koffi/**"
+    ],
     "extraResources": [
       {
         "from": "../backend-dist",
@@ -42,7 +46,8 @@
       "extendInfo": {
         "NSScreenCaptureUsageDescription": "AnyDesk Clone requires screen recording permission to stream your desktop display to remote connected devices.",
         "NSCameraUsageDescription": "AnyDesk Clone requires camera access for remote sessions.",
-        "NSMicrophoneUsageDescription": "AnyDesk Clone requires microphone access for audio during remote sessions."
+        "NSMicrophoneUsageDescription": "AnyDesk Clone requires microphone access for audio during remote sessions.",
+        "NSAccessibilityUsageDescription": "AnyDesk Clone requires accessibility permission to allow remote control of mouse and keyboard."
       },
       "target": [
         {

@@ -714,7 +714,7 @@ ipcMain.on('window:close', () => {
 
 ipcMain.handle('window:is-maximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
- });
+});
 
 // macOS Screen Recording Permission Helpers
 ipcMain.handle('system:get-screen-access-status', async () => {
@@ -740,10 +740,86 @@ ipcMain.handle('system:open-screen-preferences', async () => {
   return false;
 });
 
+// macOS Accessibility Permission Helpers (Required to simulate mouse/keyboard on Mac)
+ipcMain.handle('system:check-accessibility', async () => {
+  if (process.platform === 'darwin' && systemPreferences && systemPreferences.isTrustedAccessibilityClient) {
+    return systemPreferences.isTrustedAccessibilityClient(true);
+  }
+  return true;
+});
+
+ipcMain.handle('system:open-accessibility-preferences', async () => {
+  if (process.platform === 'darwin' && shell) {
+    try {
+      await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+});
+
 // ==============================================================================
-// Win32 Native Hardware Input Simulation (Mouse & Keyboard) via koffi
+// Cross-Platform Native Hardware Input Simulation (Mouse & Keyboard) via koffi
 // ==============================================================================
 let win32Input = null;
+let darwinInput = null;
+
+// DOM keyCode to macOS CGKeyCode map
+const DOM_TO_MAC_VIRTUAL_KEY = {
+  8: 51,   // Backspace
+  9: 48,   // Tab
+  13: 36,  // Enter
+  27: 53,  // Escape
+  32: 49,  // Space
+  37: 123, // Left
+  38: 126, // Up
+  39: 124, // Right
+  40: 125, // Down
+  45: 114, // Insert / Help
+  46: 117, // Delete
+  65: 0, 66: 11, 67: 8, 68: 2, 69: 14, 70: 3, 71: 5, 72: 4, 73: 34, 74: 38,
+  75: 40, 76: 37, 77: 46, 78: 45, 79: 31, 80: 35, 81: 12, 82: 15, 83: 1,
+  84: 17, 85: 32, 86: 9, 87: 13, 88: 7, 89: 16, 90: 6,
+  48: 29, 49: 18, 50: 19, 51: 20, 52: 21, 53: 23, 54: 22, 55: 26, 56: 28, 57: 25,
+  186: 41, // Semicolon ;
+  187: 24, // Equal =
+  188: 43, // Comma ,
+  189: 27, // Dash / Minus -
+  190: 47, // Period .
+  191: 44, // Slash /
+  192: 50, // Backquote `
+  219: 33, // Left bracket [
+  220: 42, // Backslash \
+  221: 30, // Right bracket ]
+  222: 39, // Quote '
+  16: 56,  // Shift
+  17: 59,  // Control
+  18: 58,  // Alt / Option
+  91: 55,  // Command Left
+  93: 55   // Command Right
+};
+
+// DOM KeyboardEvent.code to macOS CGKeyCode map
+const CODE_TO_MAC_KEY = {
+  'KeyA': 0, 'KeyB': 11, 'KeyC': 8, 'KeyD': 2, 'KeyE': 14, 'KeyF': 3, 'KeyG': 5,
+  'KeyH': 4, 'KeyI': 34, 'KeyJ': 38, 'KeyK': 40, 'KeyL': 37, 'KeyM': 46, 'KeyN': 45,
+  'KeyO': 31, 'KeyP': 35, 'KeyQ': 12, 'KeyR': 15, 'KeyS': 1, 'KeyT': 17, 'KeyU': 32,
+  'KeyV': 9, 'KeyW': 13, 'KeyX': 7, 'KeyY': 16, 'KeyZ': 6,
+  'Digit1': 18, 'Digit2': 19, 'Digit3': 20, 'Digit4': 21, 'Digit5': 23,
+  'Digit6': 22, 'Digit7': 26, 'Digit8': 28, 'Digit9': 25, 'Digit0': 29,
+  'Return': 36, 'Enter': 36, 'Tab': 48, 'Space': 49, 'Backspace': 51, 'Escape': 53,
+  'Delete': 117, 'ArrowLeft': 123, 'ArrowRight': 124, 'ArrowDown': 125, 'ArrowUp': 126,
+  'Minus': 27, 'Equal': 24, 'BracketLeft': 33, 'BracketRight': 30, 'Backslash': 42,
+  'Semicolon': 41, 'Quote': 39, 'Comma': 43, 'Period': 47, 'Slash': 44, 'Backquote': 50,
+  'ShiftLeft': 56, 'ShiftRight': 60, 'ControlLeft': 59, 'ControlRight': 62,
+  'AltLeft': 58, 'AltRight': 61, 'MetaLeft': 55, 'MetaRight': 55
+};
+
+let darwinLeftDown = false;
+let darwinRightDown = false;
+
 try {
   if (process.platform === 'win32') {
     const koffi = require('koffi');
@@ -760,128 +836,294 @@ try {
       GetSystemMetrics
     };
     console.log('[NativeInput] Initialized Win32 input simulation via user32.dll');
+  } else if (process.platform === 'darwin') {
+    const koffi = require('koffi');
+    let cg = null;
+    const pathsToTry = [
+      '/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics',
+      '/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices',
+      'CoreGraphics'
+    ];
+    for (const p of pathsToTry) {
+      try {
+        cg = koffi.load(p);
+        if (cg) break;
+      } catch {}
+    }
+    if (!cg) {
+      throw new Error('Could not load CoreGraphics library');
+    }
+
+    const CGPoint = koffi.struct('CGPoint', {
+      x: 'double',
+      y: 'double'
+    });
+
+    const CGWarpMousePosition = cg.func('int CGWarpMousePosition(CGPoint newCursorPosition)');
+    const CGEventCreateMouseEvent = cg.func('void* CGEventCreateMouseEvent(void* source, uint32_t mouseType, CGPoint mouseCursorPosition, uint32_t mouseButton)');
+    const CGEventCreateKeyboardEvent = cg.func('void* CGEventCreateKeyboardEvent(void* source, uint16_t virtualKey, bool keyDown)');
+    const CGEventCreateScrollWheelEvent = cg.func('void* CGEventCreateScrollWheelEvent(void* source, uint32_t units, uint32_t wheelCount, int32_t wheel1)');
+    const CGEventPost = cg.func('void CGEventPost(uint32_t tap, void* event)');
+    const CFRelease = cg.func('void CFRelease(void* cf)');
+
+    darwinInput = {
+      CGPoint,
+      CGWarpMousePosition,
+      CGEventCreateMouseEvent,
+      CGEventCreateKeyboardEvent,
+      CGEventCreateScrollWheelEvent,
+      CGEventPost,
+      CFRelease
+    };
+    console.log('[NativeInput] Initialized macOS CoreGraphics input simulation via koffi');
   }
 } catch (err) {
-  console.warn('[NativeInput] Failed to load koffi/user32 for native input:', err);
+  console.warn('[NativeInput] Failed to load native input simulation library:', err);
 }
 
 ipcMain.on('system:simulate-input', (event, input) => {
-  if (!win32Input || !input) return;
+  if (!input) return;
 
   try {
     const normX = typeof input.normalizedX === 'number' ? input.normalizedX : (input.NormalizedX || 0);
     const normY = typeof input.normalizedY === 'number' ? input.normalizedY : (input.NormalizedY || 0);
 
-    let targetX, targetY, screenWidth, screenHeight;
-    if (activeDisplayBounds) {
-      screenWidth = activeDisplayBounds.width;
-      screenHeight = activeDisplayBounds.height;
-      targetX = Math.round(activeDisplayBounds.x + normX * activeDisplayBounds.width);
-      targetY = Math.round(activeDisplayBounds.y + normY * activeDisplayBounds.height);
-    } else {
-      screenWidth = win32Input.GetSystemMetrics(0) || 1920;
-      screenHeight = win32Input.GetSystemMetrics(1) || 1080;
-      targetX = Math.max(0, Math.min(screenWidth - 1, Math.round(normX * screenWidth)));
-      targetY = Math.max(0, Math.min(screenHeight - 1, Math.round(normY * screenHeight)));
-    }
+    const primaryBounds = screen.getPrimaryDisplay().bounds;
+    const bounds = activeDisplayBounds || primaryBounds;
+    const screenWidth = bounds.width;
+    const screenHeight = bounds.height;
+    const targetX = Math.round(bounds.x + normX * screenWidth);
+    const targetY = Math.round(bounds.y + normY * screenHeight);
 
     lastSimulatedInput = { x: targetX, y: targetY, time: Date.now() };
 
     const type = (input.type || input.Type || '').toLowerCase();
     const button = typeof input.button === 'number' ? input.button : (input.Button || 0);
 
-    const MOUSEEVENTF_MOVE = 0x0001;
-    const MOUSEEVENTF_LEFTDOWN = 0x0002;
-    const MOUSEEVENTF_LEFTUP = 0x0004;
-    const MOUSEEVENTF_RIGHTDOWN = 0x0008;
-    const MOUSEEVENTF_RIGHTUP = 0x0010;
-    const MOUSEEVENTF_MIDDLEDOWN = 0x0020;
-    const MOUSEEVENTF_MIDDLEUP = 0x0040;
-    const MOUSEEVENTF_WHEEL = 0x0800;
-    const MOUSEEVENTF_ABSOLUTE = 0x8000;
-    const KEYEVENTF_KEYUP = 0x0002;
+    // -------------------------------------------------------------
+    // Windows Native Input Simulation (Untouched)
+    // -------------------------------------------------------------
+    if (process.platform === 'win32' && win32Input) {
+      const MOUSEEVENTF_MOVE = 0x0001;
+      const MOUSEEVENTF_LEFTDOWN = 0x0002;
+      const MOUSEEVENTF_LEFTUP = 0x0004;
+      const MOUSEEVENTF_RIGHTDOWN = 0x0008;
+      const MOUSEEVENTF_RIGHTUP = 0x0010;
+      const MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+      const MOUSEEVENTF_MIDDLEUP = 0x0040;
+      const MOUSEEVENTF_WHEEL = 0x0800;
+      const MOUSEEVENTF_ABSOLUTE = 0x8000;
+      const KEYEVENTF_KEYUP = 0x0002;
 
-    const absX = Math.round((targetX * 65535) / Math.max(1, screenWidth - 1));
-    const absY = Math.round((targetY * 65535) / Math.max(1, screenHeight - 1));
+      const absX = Math.round((targetX * 65535) / Math.max(1, screenWidth - 1));
+      const absY = Math.round((targetY * 65535) / Math.max(1, screenHeight - 1));
 
-    switch (type) {
-      case 'mousemove':
-        win32Input.SetCursorPos(targetX, targetY);
-        win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        break;
+      switch (type) {
+        case 'mousemove':
+          win32Input.SetCursorPos(targetX, targetY);
+          win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          break;
 
-      case 'mousedown':
-        win32Input.SetCursorPos(targetX, targetY);
-        win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        if (button === 0) win32Input.mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        else if (button === 2) win32Input.mouse_event(MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        else if (button === 1) win32Input.mouse_event(MOUSEEVENTF_MIDDLEDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        break;
+        case 'mousedown':
+          win32Input.SetCursorPos(targetX, targetY);
+          win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          if (button === 0) win32Input.mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          else if (button === 2) win32Input.mouse_event(MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          else if (button === 1) win32Input.mouse_event(MOUSEEVENTF_MIDDLEDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          break;
 
-      case 'mouseup':
-        win32Input.SetCursorPos(targetX, targetY);
-        win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        if (button === 0) win32Input.mouse_event(MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        else if (button === 2) win32Input.mouse_event(MOUSEEVENTF_RIGHTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        else if (button === 1) win32Input.mouse_event(MOUSEEVENTF_MIDDLEUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        break;
+        case 'mouseup':
+          win32Input.SetCursorPos(targetX, targetY);
+          win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          if (button === 0) win32Input.mouse_event(MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          else if (button === 2) win32Input.mouse_event(MOUSEEVENTF_RIGHTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          else if (button === 1) win32Input.mouse_event(MOUSEEVENTF_MIDDLEUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          break;
 
-      case 'click':
-        win32Input.SetCursorPos(targetX, targetY);
-        win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        if (button === 0) {
-          win32Input.mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-          win32Input.mouse_event(MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-        } else if (button === 2) {
-          win32Input.mouse_event(MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
-          win32Input.mouse_event(MOUSEEVENTF_RIGHTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+        case 'click':
+          win32Input.SetCursorPos(targetX, targetY);
+          win32Input.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          if (button === 0) {
+            win32Input.mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+            win32Input.mouse_event(MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          } else if (button === 2) {
+            win32Input.mouse_event(MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+            win32Input.mouse_event(MOUSEEVENTF_RIGHTUP | MOUSEEVENTF_ABSOLUTE, absX, absY, 0, 0);
+          }
+          break;
+
+        case 'wheel': {
+          const delta = input.deltaY || input.DeltaY || 0;
+          const scroll = delta > 0 ? -120 : 120;
+          win32Input.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, scroll, 0);
+          break;
         }
-        break;
 
-      case 'wheel': {
-        const delta = input.deltaY || input.DeltaY || 0;
-        const scroll = delta > 0 ? -120 : 120;
-        win32Input.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, scroll, 0);
-        break;
+        case 'keydown':
+        case 'keyup': {
+          const isUp = type === 'keyup';
+          const flags = isUp ? KEYEVENTF_KEYUP : 0;
+          let vk = input.keyCode || input.KeyCode;
+          if (!vk && input.key) {
+            vk = input.key.length === 1 ? input.key.toUpperCase().charCodeAt(0) : 0;
+          }
+          if (vk > 0) {
+            win32Input.keybd_event(vk, 0, flags, 0);
+          }
+          break;
+        }
+
+        case 'specialkey': {
+          const sKey = (input.specialKey || input.SpecialKey || '').toLowerCase();
+          if (sKey === 'escape') {
+            win32Input.keybd_event(0x1B, 0, 0, 0);
+            win32Input.keybd_event(0x1B, 0, KEYEVENTF_KEYUP, 0);
+          } else if (sKey === 'alttab') {
+            win32Input.keybd_event(0x12, 0, 0, 0);
+            win32Input.keybd_event(0x09, 0, 0, 0);
+            win32Input.keybd_event(0x09, 0, KEYEVENTF_KEYUP, 0);
+            win32Input.keybd_event(0x12, 0, KEYEVENTF_KEYUP, 0);
+          } else if (sKey === 'win' || sKey === 'windows') {
+            win32Input.keybd_event(0x5B, 0, 0, 0);
+            win32Input.keybd_event(0x5B, 0, KEYEVENTF_KEYUP, 0);
+          } else if (sKey === 'ctrlaltdel' || sKey === 'taskmgr') {
+            win32Input.keybd_event(0x11, 0, 0, 0);
+            win32Input.keybd_event(0x10, 0, 0, 0);
+            win32Input.keybd_event(0x1B, 0, 0, 0);
+            win32Input.keybd_event(0x1B, 0, KEYEVENTF_KEYUP, 0);
+            win32Input.keybd_event(0x10, 0, KEYEVENTF_KEYUP, 0);
+            win32Input.keybd_event(0x11, 0, KEYEVENTF_KEYUP, 0);
+          }
+          break;
+        }
       }
+    }
 
-      case 'keydown':
-      case 'keyup': {
-        const isUp = type === 'keyup';
-        const flags = isUp ? KEYEVENTF_KEYUP : 0;
-        let vk = input.keyCode || input.KeyCode;
-        if (!vk && input.key) {
-          vk = input.key.length === 1 ? input.key.toUpperCase().charCodeAt(0) : 0;
-        }
-        if (vk > 0) {
-          win32Input.keybd_event(vk, 0, flags, 0);
-        }
-        break;
-      }
+    // -------------------------------------------------------------
+    // macOS CoreGraphics Input Simulation (Native, Zero Lag)
+    // -------------------------------------------------------------
+    if (process.platform === 'darwin' && darwinInput) {
+      const { CGWarpMousePosition, CGEventCreateMouseEvent, CGEventCreateKeyboardEvent, CGEventCreateScrollWheelEvent, CGEventPost, CFRelease } = darwinInput;
+      const point = { x: targetX, y: targetY };
 
-      case 'specialkey': {
-        const sKey = (input.specialKey || input.SpecialKey || '').toLowerCase();
-        if (sKey === 'escape') {
-          win32Input.keybd_event(0x1B, 0, 0, 0);
-          win32Input.keybd_event(0x1B, 0, KEYEVENTF_KEYUP, 0);
-        } else if (sKey === 'alttab') {
-          win32Input.keybd_event(0x12, 0, 0, 0); // Alt down
-          win32Input.keybd_event(0x09, 0, 0, 0); // Tab down
-          win32Input.keybd_event(0x09, 0, KEYEVENTF_KEYUP, 0);
-          win32Input.keybd_event(0x12, 0, KEYEVENTF_KEYUP, 0);
-        } else if (sKey === 'win' || sKey === 'windows') {
-          win32Input.keybd_event(0x5B, 0, 0, 0);
-          win32Input.keybd_event(0x5B, 0, KEYEVENTF_KEYUP, 0);
-        } else if (sKey === 'ctrlaltdel' || sKey === 'taskmgr') {
-          // Send Ctrl+Shift+Esc to invoke Task Manager
-          win32Input.keybd_event(0x11, 0, 0, 0);
-          win32Input.keybd_event(0x10, 0, 0, 0);
-          win32Input.keybd_event(0x1B, 0, 0, 0);
-          win32Input.keybd_event(0x1B, 0, KEYEVENTF_KEYUP, 0);
-          win32Input.keybd_event(0x10, 0, KEYEVENTF_KEYUP, 0);
-          win32Input.keybd_event(0x11, 0, KEYEVENTF_KEYUP, 0);
+      const kCGEventLeftMouseDown = 1;
+      const kCGEventLeftMouseUp = 2;
+      const kCGEventRightMouseDown = 3;
+      const kCGEventRightMouseUp = 4;
+      const kCGEventMouseMoved = 5;
+      const kCGEventLeftMouseDragged = 6;
+      const kCGEventRightMouseDragged = 7;
+      const kCGEventOtherMouseDown = 25;
+      const kCGEventOtherMouseUp = 26;
+      const kCGHIDEventTap = 0;
+
+      const kCGMouseButtonLeft = 0;
+      const kCGMouseButtonRight = 1;
+      const kCGMouseButtonCenter = 2;
+
+      switch (type) {
+        case 'mousemove': {
+          CGWarpMousePosition(point);
+          const mType = darwinLeftDown ? kCGEventLeftMouseDragged : (darwinRightDown ? kCGEventRightMouseDragged : kCGEventMouseMoved);
+          const mBtn = darwinRightDown ? kCGMouseButtonRight : kCGMouseButtonLeft;
+          const ev = CGEventCreateMouseEvent(null, mType, point, mBtn);
+          if (ev) { CGEventPost(kCGHIDEventTap, ev); CFRelease(ev); }
+          break;
         }
-        break;
+        case 'mousedown': {
+          if (button === 2) darwinRightDown = true;
+          else if (button === 0) darwinLeftDown = true;
+          CGWarpMousePosition(point);
+          const mType = button === 2 ? kCGEventRightMouseDown : (button === 1 ? kCGEventOtherMouseDown : kCGEventLeftMouseDown);
+          const mBtn = button === 2 ? kCGMouseButtonRight : (button === 1 ? kCGMouseButtonCenter : kCGMouseButtonLeft);
+          const ev = CGEventCreateMouseEvent(null, mType, point, mBtn);
+          if (ev) { CGEventPost(kCGHIDEventTap, ev); CFRelease(ev); }
+          break;
+        }
+        case 'mouseup': {
+          if (button === 2) darwinRightDown = false;
+          else if (button === 0) darwinLeftDown = false;
+          CGWarpMousePosition(point);
+          const mType = button === 2 ? kCGEventRightMouseUp : (button === 1 ? kCGEventOtherMouseUp : kCGEventLeftMouseUp);
+          const mBtn = button === 2 ? kCGMouseButtonRight : (button === 1 ? kCGMouseButtonCenter : kCGMouseButtonLeft);
+          const ev = CGEventCreateMouseEvent(null, mType, point, mBtn);
+          if (ev) { CGEventPost(kCGHIDEventTap, ev); CFRelease(ev); }
+          break;
+        }
+        case 'click': {
+          CGWarpMousePosition(point);
+          const downType = button === 2 ? kCGEventRightMouseDown : kCGEventLeftMouseDown;
+          const upType = button === 2 ? kCGEventRightMouseUp : kCGEventLeftMouseUp;
+          const btn = button === 2 ? kCGMouseButtonRight : kCGMouseButtonLeft;
+          const evDown = CGEventCreateMouseEvent(null, downType, point, btn);
+          const evUp = CGEventCreateMouseEvent(null, upType, point, btn);
+          if (evDown) { CGEventPost(kCGHIDEventTap, evDown); CFRelease(evDown); }
+          if (evUp) { CGEventPost(kCGHIDEventTap, evUp); CFRelease(evUp); }
+          break;
+        }
+        case 'wheel': {
+          const delta = input.deltaY || input.DeltaY || 0;
+          const scroll = delta > 0 ? -3 : 3;
+          if (CGEventCreateScrollWheelEvent) {
+            const ev = CGEventCreateScrollWheelEvent(null, 1, 1, scroll);
+            if (ev) { CGEventPost(kCGHIDEventTap, ev); CFRelease(ev); }
+          }
+          break;
+        }
+        case 'keydown':
+        case 'keyup': {
+          const isDown = type === 'keydown';
+          let macKey = undefined;
+          if (input.code && CODE_TO_MAC_KEY[input.code] !== undefined) {
+            macKey = CODE_TO_MAC_KEY[input.code];
+          } else {
+            const keyCode = input.keyCode || input.KeyCode;
+            macKey = DOM_TO_MAC_VIRTUAL_KEY[keyCode];
+          }
+          if (typeof macKey === 'number') {
+            const ev = CGEventCreateKeyboardEvent(null, macKey, isDown);
+            if (ev) { CGEventPost(kCGHIDEventTap, ev); CFRelease(ev); }
+          }
+          break;
+        }
+        case 'specialkey': {
+          const sKey = (input.specialKey || input.SpecialKey || '').toLowerCase();
+          if (sKey === 'escape') {
+            const evDown = CGEventCreateKeyboardEvent(null, 53, true);
+            const evUp = CGEventCreateKeyboardEvent(null, 53, false);
+            if (evDown) { CGEventPost(kCGHIDEventTap, evDown); CFRelease(evDown); }
+            if (evUp) { CGEventPost(kCGHIDEventTap, evUp); CFRelease(evUp); }
+          } else if (sKey === 'win' || sKey === 'windows' || sKey === 'cmd') {
+            const evDown = CGEventCreateKeyboardEvent(null, 55, true);
+            const evUp = CGEventCreateKeyboardEvent(null, 55, false);
+            if (evDown) { CGEventPost(kCGHIDEventTap, evDown); CFRelease(evDown); }
+            if (evUp) { CGEventPost(kCGHIDEventTap, evUp); CFRelease(evUp); }
+          } else if (sKey === 'alttab') {
+            const cmdDown = CGEventCreateKeyboardEvent(null, 55, true);
+            const tabDown = CGEventCreateKeyboardEvent(null, 48, true);
+            const tabUp = CGEventCreateKeyboardEvent(null, 48, false);
+            const cmdUp = CGEventCreateKeyboardEvent(null, 55, false);
+            if (cmdDown) { CGEventPost(kCGHIDEventTap, cmdDown); CFRelease(cmdDown); }
+            if (tabDown) { CGEventPost(kCGHIDEventTap, tabDown); CFRelease(tabDown); }
+            if (tabUp) { CGEventPost(kCGHIDEventTap, tabUp); CFRelease(tabUp); }
+            if (cmdUp) { CGEventPost(kCGHIDEventTap, cmdUp); CFRelease(cmdUp); }
+          } else if (sKey === 'ctrlaltdel' || sKey === 'taskmgr') {
+            // macOS Force Quit dialog: Cmd (55) + Option (58) + Escape (53)
+            const cmdDown = CGEventCreateKeyboardEvent(null, 55, true);
+            const optDown = CGEventCreateKeyboardEvent(null, 58, true);
+            const escDown = CGEventCreateKeyboardEvent(null, 53, true);
+            const escUp = CGEventCreateKeyboardEvent(null, 53, false);
+            const optUp = CGEventCreateKeyboardEvent(null, 58, false);
+            const cmdUp = CGEventCreateKeyboardEvent(null, 55, false);
+            if (cmdDown) { CGEventPost(kCGHIDEventTap, cmdDown); CFRelease(cmdDown); }
+            if (optDown) { CGEventPost(kCGHIDEventTap, optDown); CFRelease(optDown); }
+            if (escDown) { CGEventPost(kCGHIDEventTap, escDown); CFRelease(escDown); }
+            if (escUp) { CGEventPost(kCGHIDEventTap, escUp); CFRelease(escUp); }
+            if (optUp) { CGEventPost(kCGHIDEventTap, optUp); CFRelease(optUp); }
+            if (cmdUp) { CGEventPost(kCGHIDEventTap, cmdUp); CFRelease(cmdUp); }
+          }
+          break;
+        }
       }
     }
   } catch (err) {
@@ -916,8 +1158,8 @@ app.whenReady().then(async () => {
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       try {
         const sources = await desktopCapturer.getSources({
-          types: ['screen', 'window'],
-          thumbnailSize: { width: 160, height: 90 },
+          types: ['screen'],
+          thumbnailSize: { width: 1, height: 1 },
           fetchWindowIcons: false
         });
         const screens = sources.filter((s) => s.id.startsWith('screen'));

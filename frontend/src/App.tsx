@@ -76,6 +76,7 @@ export const App: React.FC = () => {
   const [localIp, setLocalIp] = useState<string>('');
   const [lanDevices, setLanDevices] = useState<LanDiscoveredDevice[]>([]);
   const [macScreenPermission, setMacScreenPermission] = useState<string>('granted');
+  const [macAccessibilityGranted, setMacAccessibilityGranted] = useState<boolean>(true);
 
   // Permissions & Screen Sources
   const [permissions, setPermissions] = useState<SessionPermissions>({
@@ -136,6 +137,23 @@ export const App: React.FC = () => {
           }
         });
       }
+      if (window.electronAPI.checkAccessibility) {
+        window.electronAPI.checkAccessibility().then((granted) => {
+          setMacAccessibilityGranted(granted);
+          console.log('[macOS Accessibility Status]:', granted);
+        });
+      }
+
+      const refreshMacPermissions = () => {
+        if (window.electronAPI?.getScreenAccessStatus) {
+          window.electronAPI.getScreenAccessStatus().then((s) => s && setMacScreenPermission(s));
+        }
+        if (window.electronAPI?.checkAccessibility) {
+          window.electronAPI.checkAccessibility().then((g) => setMacAccessibilityGranted(g));
+        }
+      };
+
+      window.addEventListener('focus', refreshMacPermissions);
 
       window.electronAPI.getSystemInfo().then((info) => {
         if (info.hostname && !localStorage.getItem(STORAGE_KEY_DEVICE_NAME)) {
@@ -867,8 +885,8 @@ export const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* macOS Screen Recording Permission Warning Banner */}
-      {!activeSessionId && (macScreenPermission === 'denied' || macScreenPermission === 'not-determined') && (
+      {/* macOS Permissions Warning Banner (Screen Recording & Accessibility) */}
+      {!activeSessionId && ((macScreenPermission === 'denied' || macScreenPermission === 'not-determined') || !macAccessibilityGranted) && (
         <div
           style={{
             background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(234, 88, 12, 0.18))',
@@ -883,29 +901,68 @@ export const App: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#fef08a' }}>
             <AlertTriangle size={20} color="#f59e0b" style={{ flexShrink: 0 }} />
-            <span>
-              <strong>Screen Recording Permission Required:</strong> macOS blocks screen streaming by default. Enable AnyDesk Clone in <strong>System Settings &gt; Privacy &amp; Security &gt; Screen Recording</strong>, then <strong>Quit and Reopen</strong> AnyDesk Clone (Cmd+Q).
-            </span>
+            <div>
+              <strong>macOS Permissions Required:</strong>{' '}
+              {macScreenPermission !== 'granted' && (
+                <span>Screen Recording (to stream desktop) is needed. </span>
+              )}
+              {!macAccessibilityGranted && (
+                <span>Accessibility (to control mouse &amp; keyboard) is needed. </span>
+              )}
+              <span>Enable AnyDesk Clone in macOS System Settings, then <strong>Quit and Reopen</strong> AnyDesk Clone (Cmd+Q).</span>
+            </div>
           </div>
-          <button
-            onClick={() => window.electronAPI?.openScreenPreferences?.()}
-            style={{
-              background: '#f59e0b',
-              color: '#000',
-              fontWeight: 700,
-              border: 'none',
-              borderRadius: '6px',
-              padding: '7px 14px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            <span>Open System Settings</span>
-            <ExternalLink size={13} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {macScreenPermission !== 'granted' && (
+              <button
+                onClick={() => window.electronAPI?.openScreenPreferences?.()}
+                style={{
+                  background: '#f59e0b',
+                  color: '#000',
+                  fontWeight: 700,
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '7px 12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  fontSize: '12px'
+                }}
+              >
+                <span>Screen Recording</span>
+                <ExternalLink size={13} />
+              </button>
+            )}
+            {!macAccessibilityGranted && (
+              <button
+                onClick={() => {
+                  window.electronAPI?.openAccessibilityPreferences?.();
+                  setTimeout(() => {
+                    window.electronAPI?.checkAccessibility?.().then((g) => setMacAccessibilityGranted(g));
+                  }, 1200);
+                }}
+                style={{
+                  background: '#38bdf8',
+                  color: '#000',
+                  fontWeight: 700,
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '7px 12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  fontSize: '12px'
+                }}
+              >
+                <span>Accessibility</span>
+                <ExternalLink size={13} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
