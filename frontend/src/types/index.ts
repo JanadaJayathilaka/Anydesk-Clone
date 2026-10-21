@@ -126,6 +126,8 @@ export interface ElectronAPI {
   onHostCursorPosition?: (callback: (pos: { x: number; y: number }) => void) => () => void;
   readClipboard?: () => Promise<string>;
   writeClipboard?: (text: string) => void;
+  getScreenAccessStatus?: () => Promise<string>;
+  openScreenPreferences?: () => Promise<boolean>;
 }
 
 declare global {

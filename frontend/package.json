@@ -39,6 +39,11 @@
       "category": "public.app-category.utilities",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "AnyDesk Clone requires screen recording permission to stream your desktop display to remote connected devices.",
+        "NSCameraUsageDescription": "AnyDesk Clone requires camera access for remote sessions.",
+        "NSMicrophoneUsageDescription": "AnyDesk Clone requires microphone access for audio during remote sessions."
+      },
       "target": [
         {
           "target": "dmg",

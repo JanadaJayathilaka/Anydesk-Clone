@@ -111,8 +111,8 @@ export class WebRtcService {
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            width: { ideal: 3840, max: 7680 },
-            height: { ideal: 2160, max: 4320 },
+            width: { ideal: 1920, max: 3840 },
+            height: { ideal: 1080, max: 2160 },
             frameRate: { ideal: 60, max: 60 }
           },
           audio: false
@@ -152,10 +152,8 @@ export class WebRtcService {
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: chosenSourceId,
-              minWidth: 1280,
-              maxWidth: 7680,
-              minHeight: 720,
-              maxHeight: 4320,
+              maxWidth: 3840,
+              maxHeight: 2160,
               maxFrameRate: 60
             }
           }

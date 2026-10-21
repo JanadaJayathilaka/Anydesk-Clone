@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { TitleBar } from './components/TitleBar';
 import { OfflineBanner } from './components/OfflineBanner';
 import { ThisDeskCard } from './components/ThisDeskCard';
@@ -74,6 +75,7 @@ export const App: React.FC = () => {
   const [isRetryingSignalR, setIsRetryingSignalR] = useState(false);
   const [localIp, setLocalIp] = useState<string>('');
   const [lanDevices, setLanDevices] = useState<LanDiscoveredDevice[]>([]);
+  const [macScreenPermission, setMacScreenPermission] = useState<string>('granted');
 
   // Permissions & Screen Sources
   const [permissions, setPermissions] = useState<SessionPermissions>({
@@ -126,6 +128,15 @@ export const App: React.FC = () => {
     let unsubscribeLan: (() => void) | undefined;
 
     if (window.electronAPI?.isElectron) {
+      if (window.electronAPI.getScreenAccessStatus) {
+        window.electronAPI.getScreenAccessStatus().then((status) => {
+          if (status) {
+            setMacScreenPermission(status);
+            console.log('[macOS Screen Permission Status]:', status);
+          }
+        });
+      }
+
       window.electronAPI.getSystemInfo().then((info) => {
         if (info.hostname && !localStorage.getItem(STORAGE_KEY_DEVICE_NAME)) {
           setDeviceName(info.hostname);
@@ -855,6 +866,48 @@ export const App: React.FC = () => {
         status={connectionStatus}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
+
+      {/* macOS Screen Recording Permission Warning Banner */}
+      {!activeSessionId && (macScreenPermission === 'denied' || macScreenPermission === 'not-determined') && (
+        <div
+          style={{
+            background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(234, 88, 12, 0.18))',
+            borderBottom: '1px solid rgba(245, 158, 11, 0.45)',
+            padding: '12px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            fontSize: '13px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#fef08a' }}>
+            <AlertTriangle size={20} color="#f59e0b" style={{ flexShrink: 0 }} />
+            <span>
+              <strong>Screen Recording Permission Required:</strong> macOS blocks screen streaming by default. Enable AnyDesk Clone in <strong>System Settings &gt; Privacy &amp; Security &gt; Screen Recording</strong>, then <strong>Quit and Reopen</strong> AnyDesk Clone (Cmd+Q).
+            </span>
+          </div>
+          <button
+            onClick={() => window.electronAPI?.openScreenPreferences?.()}
+            style={{
+              background: '#f59e0b',
+              color: '#000',
+              fontWeight: 700,
+              border: 'none',
+              borderRadius: '6px',
+              padding: '7px 14px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            <span>Open System Settings</span>
+            <ExternalLink size={13} />
+          </button>
+        </div>
+      )}
 
       {/* Offline banner if backend unreachable */}
       {connectionStatus === 'offline' && !activeSessionId && (

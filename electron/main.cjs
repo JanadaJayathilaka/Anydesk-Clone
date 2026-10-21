@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, Menu, screen, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, Menu, screen, clipboard, systemPreferences, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -714,6 +714,30 @@ ipcMain.on('window:close', () => {
 
 ipcMain.handle('window:is-maximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
+ });
+
+// macOS Screen Recording Permission Helpers
+ipcMain.handle('system:get-screen-access-status', async () => {
+  if (process.platform === 'darwin' && systemPreferences && systemPreferences.getMediaAccessStatus) {
+    try {
+      return systemPreferences.getMediaAccessStatus('screen');
+    } catch {
+      return 'unknown';
+    }
+  }
+  return 'granted';
+});
+
+ipcMain.handle('system:open-screen-preferences', async () => {
+  if (process.platform === 'darwin' && shell) {
+    try {
+      await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 });
 
 // ==============================================================================
@@ -868,6 +892,18 @@ ipcMain.on('system:simulate-input', (event, input) => {
 app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.anydeskclone.app');
+  }
+
+  if (process.platform === 'darwin') {
+    try {
+      if (systemPreferences && systemPreferences.getMediaAccessStatus) {
+        const screenStatus = systemPreferences.getMediaAccessStatus('screen');
+        console.log('[macOS Permissions] Screen access status on launch:', screenStatus);
+      }
+      desktopCapturer.getSources({ types: ['screen'] }).catch(() => {});
+    } catch (e) {
+      console.warn('[macOS Permissions] Init error:', e);
+    }
   }
 
   // Automatically handle getDisplayMedia requests with primary or active screen

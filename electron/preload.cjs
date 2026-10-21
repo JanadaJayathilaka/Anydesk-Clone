@@ -27,5 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('host:cursor-position', handler);
   },
   readClipboard: () => ipcRenderer.invoke('clipboard:read-text'),
-  writeClipboard: (text) => ipcRenderer.send('clipboard:write-text', text)
+  writeClipboard: (text) => ipcRenderer.send('clipboard:write-text', text),
+  getScreenAccessStatus: () => ipcRenderer.invoke('system:get-screen-access-status'),
+  openScreenPreferences: () => ipcRenderer.invoke('system:open-screen-preferences')
 });
