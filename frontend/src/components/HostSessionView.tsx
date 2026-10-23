@@ -7,7 +7,8 @@ import {
   Eye,
   EyeOff,
   Activity,
-  Layers
+  Layers,
+  AlertTriangle
 } from 'lucide-react';
 import type { PeerStats, SessionPermissions, ElectronSource } from '../types';
 
@@ -22,6 +23,8 @@ interface HostSessionViewProps {
   selectedSourceId?: string;
   onSelectSourceId?: (sourceId: string) => void;
   localStream?: MediaStream | null;
+  macScreenPermission?: string;
+  onOpenScreenPreferences?: () => void;
 }
 
 export const HostSessionView: React.FC<HostSessionViewProps> = ({
@@ -33,7 +36,9 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
   screenSources = [],
   selectedSourceId = '',
   onSelectSourceId,
-  localStream
+  localStream,
+  macScreenPermission,
+  onOpenScreenPreferences
 }) => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
@@ -156,6 +161,45 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* macOS Screen Recording Missing Banner */}
+      {macScreenPermission && macScreenPermission !== 'granted' && (
+        <div style={{
+          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.2), rgba(245, 158, 11, 0.2))',
+          borderBottom: '1px solid rgba(239, 68, 68, 0.4)',
+          padding: '10px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          fontSize: '13px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fca5a5' }}>
+            <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+            <span>
+              <strong>macOS Screen Recording Permission Needed:</strong> macOS is currently hiding your desktop, causing the remote partner to see a black screen.
+            </span>
+          </div>
+          {onOpenScreenPreferences && (
+            <button
+              onClick={onOpenScreenPreferences}
+              style={{
+                background: '#ef4444',
+                color: '#fff',
+                fontWeight: 700,
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 14px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                fontSize: '12px'
+              }}
+            >
+              Open System Settings
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main Host Management Dashboard */}
       <div style={{

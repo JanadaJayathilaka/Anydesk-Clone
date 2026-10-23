@@ -12,7 +12,7 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,We
 app.commandLine.appendSwitch('enable-webrtc-hide-local-ips-with-mdns', 'false');
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_and_private_interfaces');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-app.commandLine.appendSwitch('enable-features', 'WebRTCPeerConnectionWithBlockIceAddresses');
+app.commandLine.appendSwitch('enable-webrtc-stun-origin');
 
 // Prevent Chromium from throttling WebRTC video capture, timers, IPC, and rendering when minimized or in background
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -563,7 +563,7 @@ ipcMain.handle('desktop-capturer:get-sources', async (event, opts) => {
       }
 
       return {
-        id: matchedSource ? matchedSource.id : `screen:${idx}:0`,
+        id: matchedSource ? matchedSource.id : (screenSources[idx]?.id || screenSources[0]?.id || `screen:${idx}:0`),
         name: `Screen ${displayNumber}`,
         displayNumber: displayNumber,
         thumbnail: matchedSource && matchedSource.thumbnail ? matchedSource.thumbnail.toDataURL() : null,
@@ -1145,7 +1145,7 @@ app.whenReady().then(async () => {
         const screenStatus = systemPreferences.getMediaAccessStatus('screen');
         console.log('[macOS Permissions] Screen access status on launch:', screenStatus);
       }
-      desktopCapturer.getSources({ types: ['screen'] }).catch(() => {});
+      desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 160, height: 90 } }).catch(() => {});
     } catch (e) {
       console.warn('[macOS Permissions] Init error:', e);
     }
@@ -1189,8 +1189,8 @@ app.whenReady().then(async () => {
           }
         }
 
-        // Only default to leftmost physical display (Screen 1) if activeScreenSourceId was never specified
-        if (!chosen && !activeScreenSourceId) {
+        // Always fallback if chosen is not resolved (fixes macOS display id mismatch and multi-monitor edge cases)
+        if (!chosen) {
           const displays = screen.getAllDisplays();
           const primaryDisplay = screen.getPrimaryDisplay();
           const sortedDisplays = [...displays].sort((a, b) => {

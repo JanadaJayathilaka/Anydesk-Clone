@@ -121,27 +121,38 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
     if (remoteStream) {
       video.srcObject = remoteStream;
       video.muted = true;
+      video.defaultMuted = true;
       video.playsInline = true;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.setAttribute('muted', 'true');
+      video.setAttribute('autoplay', 'true');
       
       const tracks = remoteStream.getVideoTracks();
-      if (tracks.length > 0) {
+      const attemptPlay = () => {
         setIsVideoPlaying(true);
+        video.play().catch((e) => {
+          console.log('[RemoteViewer] Video play note:', e);
+        });
+      };
+
+      if (tracks.length > 0) {
         tracks[0].onunmute = () => {
-          setIsVideoPlaying(true);
-          video.play().catch(() => {});
+          attemptPlay();
+        };
+        tracks[0].onended = () => {
+          setIsVideoPlaying(false);
         };
       }
 
-      video.play().then(() => {
-        setIsVideoPlaying(true);
-      }).catch((e) => {
-        console.log('Video play error/handled:', e);
-        setIsVideoPlaying(true);
-      });
+      attemptPlay();
 
-      // Quick fallback: if stream is passed, unhide connecting overlay immediately
+      // Quick fallback: if stream is passed, unhide connecting overlay and verify playback
       const checkTimer = setTimeout(() => {
         setIsVideoPlaying(true);
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
       }, 150);
       return () => clearTimeout(checkTimer);
     } else {
@@ -574,6 +585,11 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
       <div
         ref={canvasWrapperRef}
         className={`screen-canvas-wrapper ${effectiveInteractive ? 'interactive' : ''}`}
+        onPointerDown={() => {
+          if (videoRef.current && videoRef.current.paused) {
+            videoRef.current.play().catch(() => {});
+          }
+        }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}
@@ -694,10 +710,12 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
           onLoadedData={() => {
             setIsVideoPlaying(true);
             updateVideoBox();
+            if (videoRef.current?.paused) videoRef.current.play().catch(() => {});
           }}
           onCanPlay={() => {
             setIsVideoPlaying(true);
             updateVideoBox();
+            if (videoRef.current?.paused) videoRef.current.play().catch(() => {});
           }}
           onLoadedMetadata={() => {
             setIsVideoPlaying(true);
@@ -712,7 +730,11 @@ export const RemoteScreenViewer: React.FC<RemoteScreenViewerProps> = ({
             objectFit: displayMode === 'contain' ? 'contain' : 'fill',
             width: '100%',
             height: '100%',
-            display: 'block'
+            display: 'block',
+            transform: 'translateZ(0)',
+            WebkitTransform: 'translateZ(0)',
+            backfaceVisibility: 'hidden',
+            backgroundColor: '#0c0e14'
           }}
         />
       </div>

@@ -683,6 +683,19 @@ export const App: React.FC = () => {
       await signalRService.registerDevice(deviceId, deviceName);
     } catch { }
 
+    // Refresh macOS screen permission check before capturing
+    if (window.electronAPI?.getScreenAccessStatus) {
+      try {
+        const s = await window.electronAPI.getScreenAccessStatus();
+        if (s) {
+          setMacScreenPermission(s);
+          if (s !== 'granted' && window.electronAPI?.openScreenPreferences) {
+            window.electronAPI.openScreenPreferences();
+          }
+        }
+      } catch {}
+    }
+
     // 1. Acquire stream immediately while user click gesture is active
     let stream: MediaStream | null = null;
     try {
@@ -1084,6 +1097,8 @@ export const App: React.FC = () => {
           selectedSourceId={selectedSourceId}
           onSelectSourceId={handleSwitchScreen}
           localStream={remoteStream}
+          macScreenPermission={macScreenPermission}
+          onOpenScreenPreferences={() => window.electronAPI?.openScreenPreferences?.()}
         />
       ) : (
         /* Controller Remote Desktop Feed: The other PC sees the live host screen */

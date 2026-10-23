@@ -109,14 +109,28 @@ export class WebRtcService {
     // 1. Standard getDisplayMedia flow (handled seamlessly by Electron setDisplayMediaRequestHandler)
     if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            width: { ideal: 1920, max: 3840 },
-            height: { ideal: 1080, max: 2160 },
-            frameRate: { ideal: 30, max: 60 }
-          },
-          audio: false
-        });
+        let stream: MediaStream | null = null;
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 1920, max: 3840 },
+              height: { ideal: 1080, max: 2160 },
+              frameRate: { ideal: 30, max: 60 }
+            },
+            audio: false
+          });
+        } catch (constraintErr) {
+          console.warn('[WebRTC] getDisplayMedia with ideal constraints rejected (e.g. Safari/macOS), falling back to basic video: true:', constraintErr);
+          try {
+            stream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: false
+            });
+          } catch (basicErr) {
+            console.warn('[WebRTC] getDisplayMedia basic fallback also rejected:', basicErr);
+          }
+        }
+
         if (stream && stream.getVideoTracks().length > 0) {
           const track = stream.getVideoTracks()[0];
           if ('contentHint' in track) {
@@ -268,10 +282,80 @@ export class WebRtcService {
     }
   }
 
-  // Automatically tunes SDP bandwidth lines for video media section
+  // Reorders SDP video media section so VP8 and VP9 payload types appear first
+  // Eliminates black screen issues caused by cross-platform H.264 profile mismatches between macOS (VideoToolbox) and Windows (MF/NVENC)
+  private prioritizeVp8InSdp(sdp: string): string {
+    if (!sdp) return sdp;
+    const lines = sdp.split(/\r\n|\n/);
+    const vp8Pts: string[] = [];
+    const vp9Pts: string[] = [];
+
+    for (const line of lines) {
+      const match = line.match(/^a=rtpmap:(\d+)\s+(VP8|VP9)\/90000/i);
+      if (match) {
+        const pt = match[1];
+        const codec = match[2].toUpperCase();
+        if (codec === 'VP8') {
+          vp8Pts.push(pt);
+        } else if (codec === 'VP9') {
+          vp9Pts.push(pt);
+        }
+      }
+    }
+
+    const preferredPts = [...vp8Pts, ...vp9Pts];
+    if (preferredPts.length === 0) return sdp;
+
+    return lines
+      .map((line) => {
+        if (line.startsWith('m=video ')) {
+          const parts = line.split(' ');
+          if (parts.length > 3) {
+            const prefix = parts.slice(0, 3);
+            const existingPts = parts.slice(3);
+            const reordered = [
+              ...preferredPts.filter((pt) => existingPts.includes(pt)),
+              ...existingPts.filter((pt) => !preferredPts.includes(pt))
+            ];
+            return [...prefix, ...reordered].join(' ');
+          }
+        }
+        return line;
+      })
+      .join('\r\n');
+  }
+
+  // Ensures transceivers prefer VP8 (and VP9) over H.264 to guarantee seamless decoding between Windows and macOS
+  private applyTransceiverCodecPreferences(pc: RTCPeerConnection) {
+    try {
+      const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+      const codecs = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities('video')?.codecs :
+                     (RTCRtpReceiver.getCapabilities ? RTCRtpReceiver.getCapabilities('video')?.codecs : []);
+      if (!codecs || codecs.length === 0) return;
+
+      const vp8 = codecs.filter((c) => c.mimeType.toLowerCase() === 'video/vp8');
+      const vp9 = codecs.filter((c) => c.mimeType.toLowerCase() === 'video/vp9');
+      const others = codecs.filter((c) => !c.mimeType.toLowerCase().startsWith('video/vp'));
+      const preferred = [...vp8, ...vp9, ...others];
+
+      for (const t of transceivers) {
+        if (typeof (t as any).setCodecPreferences === 'function') {
+          try {
+            (t as any).setCodecPreferences(preferred);
+          } catch {}
+        }
+      }
+      console.log('[WebRTC] Set transceiver codec preferences (VP8, VP9 prioritized)');
+    } catch (err) {
+      console.warn('[WebRTC] Note setting transceiver codec preferences:', err);
+    }
+  }
+
+  // Automatically tunes SDP bandwidth lines and prioritizes VP8/VP9 for cross-platform compatibility
   private tuneSdpBandwidth(sdp: string, bitrateKbps: number = 16000): string {
     if (!sdp) return sdp;
-    const cleaned = sdp.replace(/b=(AS|TIAS):[^\r\n]*\r?\n/g, '');
+    const vp8Prioritized = this.prioritizeVp8InSdp(sdp);
+    const cleaned = vp8Prioritized.replace(/b=(AS|TIAS):[^\r\n]*\r?\n/g, '');
     return cleaned.replace(
       /(m=video [^\r\n]*\r?\n)/g,
       `$1b=AS:${bitrateKbps}\r\nb=TIAS:${bitrateKbps * 1000}\r\n`
@@ -318,6 +402,9 @@ export class WebRtcService {
         transceiver.direction = 'sendonly';
       }
     });
+
+    // Configure video transceivers to prioritize universal VP8/VP9 codec
+    this.applyTransceiverCodecPreferences(this.peerConnection);
 
     // 4. Create Host Offer (includes the video track + data channel in SDP) with tuned bandwidth
     const offer = await this.peerConnection.createOffer();
@@ -713,12 +800,13 @@ export class WebRtcService {
         }));
         console.log('[WebRTC Controller] Set remote description (Offer) success');
 
-        // Configure all incoming video transceivers to recvonly
+        // Configure all incoming video transceivers to recvonly and prefer VP8
         this.peerConnection.getTransceivers().forEach((t) => {
           if (t.receiver?.track?.kind === 'video') {
             t.direction = 'recvonly';
           }
         });
+        this.applyTransceiverCodecPreferences(this.peerConnection);
 
         await this.flushPendingCandidates();
 
@@ -1069,12 +1157,12 @@ export class WebRtcService {
 
   private closeExistingPeerConnection(streamToKeep?: MediaStream) {
     this.stopStatsMonitoring();
-    this.stopVirtualDisplay();
     this.stopOfferRetransmit();
     this.stopRequestOfferInterval();
     this.localOffer = null;
 
     if (this.localStream && this.localStream !== streamToKeep) {
+      this.stopVirtualDisplay();
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
@@ -1094,6 +1182,7 @@ export class WebRtcService {
   }
 
   public cleanUp() {
+    this.stopVirtualDisplay();
     this.closeExistingPeerConnection();
     this.stopOfferRetransmit();
     this.stopRequestOfferInterval();
