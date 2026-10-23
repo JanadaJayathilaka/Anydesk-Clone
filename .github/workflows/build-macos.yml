@@ -34,13 +34,13 @@ jobs:
       - name: Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AnyDesk-Clone-macOS-DMG
+          name: Screen-Share-1-macOS-DMG
           path: installer-dist/*.dmg
           if-no-files-found: error
 
       - name: Upload ZIP Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AnyDesk-Clone-macOS-ZIP
+          name: Screen-Share-1-macOS-ZIP
           path: installer-dist/*.zip
           if-no-files-found: warn

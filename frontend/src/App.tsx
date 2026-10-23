@@ -24,12 +24,12 @@ import { signalRService } from './services/signalRService';
 import { webRtcService } from './services/webRtcService';
 import { DEFAULT_SERVER_URL, isLocalOrPrivateIp } from './utils/networkUtils';
 
-const STORAGE_KEY_DEVICE_ID = 'anydesk_clone_device_id';
-const STORAGE_KEY_SERVER_URL = 'anydesk_clone_server_url';
-const STORAGE_KEY_DEVICE_NAME = 'anydesk_clone_device_name';
-const STORAGE_KEY_RECENTS = 'anydesk_clone_recent_sessions';
+const STORAGE_KEY_DEVICE_ID = 'screenshare1_device_id';
+const STORAGE_KEY_SERVER_URL = 'screenshare1_server_url';
+const STORAGE_KEY_DEVICE_NAME = 'screenshare1_device_name';
+const STORAGE_KEY_RECENTS = 'screenshare1_recent_sessions';
 
-// Generates a 9-digit random numeric ID like AnyDesk (e.g. 842109385)
+// Generates a 9-digit random numeric ID like Screen Share 1 (e.g. 842109385)
 function generateDeviceId(): string {
   const min = 100000000;
   const max = 999999999;
@@ -37,13 +37,16 @@ function generateDeviceId(): string {
 }
 
 export const App: React.FC = () => {
-  // Device identity (persists in localStorage so PC retains its AnyDesk ID)
+  // Device identity (persists in localStorage so PC retains its Screen Share 1 ID)
   const [deviceId] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     const paramId = params.get('id');
     if (paramId && paramId.length === 9) return paramId;
 
-    const saved = localStorage.getItem(STORAGE_KEY_DEVICE_ID) || sessionStorage.getItem(STORAGE_KEY_DEVICE_ID);
+    const saved = localStorage.getItem(STORAGE_KEY_DEVICE_ID) ||
+      localStorage.getItem('anzeedesk_device_id') ||
+      localStorage.getItem('anydesk_clone_device_id') ||
+      sessionStorage.getItem(STORAGE_KEY_DEVICE_ID);
     if (saved && saved.length === 9) {
       localStorage.setItem(STORAGE_KEY_DEVICE_ID, saved);
       return saved;
@@ -55,11 +58,16 @@ export const App: React.FC = () => {
   });
 
   const [deviceName, setDeviceName] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEY_DEVICE_NAME) || 'Windows Desktop';
+    return localStorage.getItem(STORAGE_KEY_DEVICE_NAME) ||
+      localStorage.getItem('anzeedesk_device_name') ||
+      localStorage.getItem('anydesk_clone_device_name') ||
+      'Windows Desktop';
   });
 
   const [serverUrl, setServerUrl] = useState<string>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_SERVER_URL);
+    const saved = localStorage.getItem(STORAGE_KEY_SERVER_URL) ||
+      localStorage.getItem('anzeedesk_server_url') ||
+      localStorage.getItem('anydesk_clone_server_url');
     // If empty or previously set to a local/LAN/private IP, reset immediately to the AWS server!
     if (!saved || isLocalOrPrivateIp(saved)) {
       localStorage.setItem(STORAGE_KEY_SERVER_URL, DEFAULT_SERVER_URL);
@@ -94,7 +102,9 @@ export const App: React.FC = () => {
   const [remoteId, setRemoteId] = useState<string>('');
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_RECENTS);
+      const saved = localStorage.getItem(STORAGE_KEY_RECENTS) ||
+        localStorage.getItem('anzeedesk_recent_sessions') ||
+        localStorage.getItem('anydesk_clone_recent_sessions');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -367,7 +377,7 @@ export const App: React.FC = () => {
         if (!isRemoteServerRef.current) {
           // Only start the local bundled backend when NOT using a remote cloud server
           try {
-            setStatusMessage('Starting local AnyDesk backend...');
+            setStatusMessage('Starting local Screen Share 1 backend...');
             await window.electronAPI.startBackend();
           } catch (e) {
             console.warn('Electron startBackend error:', e);
@@ -628,7 +638,7 @@ export const App: React.FC = () => {
       setConnectionStatus('rejected');
       let cleanMsg = 'Remote desk is offline or unavailable.';
       if (rawMsg.includes('offline or not found')) {
-        cleanMsg = `Device ${targetId.replace(/(\d{3})(?=\d)/g, '$1 ')} was not found on the hub. Make sure AnyDesk is open on that computer.`;
+        cleanMsg = `Device ${targetId.replace(/(\d{3})(?=\d)/g, '$1 ')} was not found on the hub. Make sure Screen Share 1 is open on that computer.`;
       } else if (rawMsg.includes('not connected')) {
         cleanMsg = 'Signaling server is disconnected. Please check Settings.';
       }
@@ -853,7 +863,7 @@ export const App: React.FC = () => {
   };
 
   const handleManualLanScan = async () => {
-    setStatusMessage('Scanning Wi-Fi network for AnyDesk computers...');
+    setStatusMessage('Scanning Wi-Fi network for Screen Share 1 computers...');
     if (window.electronAPI?.scanSubnet) {
       try {
         const found = await window.electronAPI.scanSubnet();
@@ -868,7 +878,7 @@ export const App: React.FC = () => {
           });
           setStatusMessage(`Found ${found.length} computer(s) on local network.`);
         } else {
-          setStatusMessage('Scan complete. No other AnyDesk computers found on this subnet.');
+          setStatusMessage('Scan complete. No other Screen Share 1 computers found on this subnet.');
         }
       } catch {
         setStatusMessage('LAN scan completed.');
@@ -909,7 +919,7 @@ export const App: React.FC = () => {
               {!macAccessibilityGranted && (
                 <span>Accessibility (to control mouse &amp; keyboard) is needed. </span>
               )}
-              <span>Enable AnyDesk Clone in macOS System Settings, then <strong>Quit and Reopen</strong> AnyDesk Clone (Cmd+Q).</span>
+              <span>Enable Screen Share 1 in macOS System Settings, then <strong>Quit and Reopen</strong> Screen Share 1 (Cmd+Q).</span>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>

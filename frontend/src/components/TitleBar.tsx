@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings } from 'lucide-react';
+import { Settings, ScreenShare } from 'lucide-react';
 import type { ConnectionStatus } from '../types';
 
 interface TitleBarProps {
@@ -39,11 +39,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     <header className="app-titlebar">
       <div className="titlebar-left">
         <div className="app-logo">
-          {/* Iconic AnyDesk red polygon logo */}
-          <svg className="logo-icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8.322 3.677 0 12l8.322 8.323L16.645 12zm7.371.01-1.849 1.85 6.49 6.456-6.49 6.49 1.85 1.817L24 11.993z" />
-          </svg>
-          <span>AnyDesk</span>
+          {/* Light blue Screen Share 1 logo */}
+          <ScreenShare className="logo-icon" size={22} strokeWidth={2.2} />
+          <span>Screen Share 1</span>
         </div>
       </div>
 

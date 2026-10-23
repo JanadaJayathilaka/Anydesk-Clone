@@ -130,7 +130,7 @@ export class SignalRService {
       this.onConnectionChange?.(true);
       if (this.currentDeviceId) {
         try {
-          await this.hubConnection?.invoke('RegisterDevice', this.currentDeviceId, 'AnyDesk Client');
+          await this.hubConnection?.invoke('RegisterDevice', this.currentDeviceId, 'Screen Share 1 Client');
         } catch (e) {
           console.error('Re-registration error:', e);
         }

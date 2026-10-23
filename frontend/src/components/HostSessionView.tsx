@@ -95,7 +95,7 @@ export const HostSessionView: React.FC<HostSessionViewProps> = ({
       color: 'var(--text-primary)',
       overflowY: 'auto'
     }}>
-      {/* Top Session Bar (AnyDesk Red / Slate style) */}
+      {/* Top Session Bar (Screen Share 1 Light Blue / Slate style) */}
       <div style={{
         height: '42px',
         background: '#131722',

@@ -71,7 +71,7 @@ function initLanDiscovery() {
     udpSocket.on('message', (msg, rinfo) => {
       try {
         const data = JSON.parse(msg.toString());
-        if (data && data.type === 'anydesk-lan-presence' && data.deviceId) {
+        if (data && (data.type === 'screenshare1-lan-presence' || data.type === 'anzeedesk-lan-presence' || data.type === 'anydesk-lan-presence') && data.deviceId) {
           // Ignore our own broadcast packets
           if (myDeviceId && data.deviceId === myDeviceId) return;
 
@@ -108,7 +108,7 @@ function broadcastPresence(deviceId, deviceName) {
 
   const packet = Buffer.from(
     JSON.stringify({
-      type: 'anydesk-lan-presence',
+      type: 'screenshare1-lan-presence',
       deviceId,
       deviceName,
       port: 5082
@@ -131,7 +131,7 @@ function broadcastPresence(deviceId, deviceName) {
   }
 }
 
-async function scanSubnetForAnyDesk() {
+async function scanSubnetForScreenShare1() {
   const ips = getLocalNetworkIps();
   if (!ips || ips.length === 0 || ips[0] === '127.0.0.1') return [];
 
@@ -215,7 +215,7 @@ ipcMain.on('lan:broadcast-presence', (event, info) => {
 });
 
 ipcMain.handle('lan:scan-subnet', async () => {
-  return await scanSubnetForAnyDesk();
+  return await scanSubnetForScreenShare1();
 });
 
 // ==============================================================================
@@ -235,30 +235,33 @@ function checkBackendAlive(timeoutMs = 600) {
 }
 
 function findBackendExecutable() {
-  const possiblePaths = [
+  const binaryNames = ['AnzeeDesk.Backend.exe', 'AnyDeskClone.Backend.exe'];
+  const baseDirs = [
     // 1. Packaged resources folder (installed app or portable temp)
-    path.join(process.resourcesPath, 'backend', 'AnyDeskClone.Backend.exe'),
-    path.join(path.dirname(process.execPath), 'resources', 'backend', 'AnyDeskClone.Backend.exe'),
-    path.join(process.resourcesPath, 'app.asar.unpacked', 'backend', 'AnyDeskClone.Backend.exe'),
+    path.join(process.resourcesPath, 'backend'),
+    path.join(path.dirname(process.execPath), 'resources', 'backend'),
+    path.join(process.resourcesPath, 'app.asar.unpacked', 'backend'),
     // 2. Portable executable directory
-    process.env.PORTABLE_EXECUTABLE_DIR ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'resources', 'backend', 'AnyDeskClone.Backend.exe') : null,
+    process.env.PORTABLE_EXECUTABLE_DIR ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'resources', 'backend') : null,
     // 3. Dev / unpackaged paths
-    path.join(__dirname, '../../backend-dist/AnyDeskClone.Backend.exe'),
-    path.join(__dirname, '../backend-dist/AnyDeskClone.Backend.exe'),
-    path.join(__dirname, '../../installer-dist/win-unpacked/resources/backend/AnyDeskClone.Backend.exe'),
-    path.join(process.cwd(), 'backend-dist', 'AnyDeskClone.Backend.exe'),
-    path.join(process.cwd(), 'installer-dist', 'win-unpacked', 'resources', 'backend', 'AnyDeskClone.Backend.exe'),
-    path.join(app.getAppPath(), '..', 'backend', 'AnyDeskClone.Backend.exe'),
-    path.join(app.getAppPath(), '..', '..', 'backend-dist', 'AnyDeskClone.Backend.exe')
+    path.join(__dirname, '../../backend-dist'),
+    path.join(__dirname, '../backend-dist'),
+    path.join(__dirname, '../../installer-dist/win-unpacked/resources/backend'),
+    path.join(process.cwd(), 'backend-dist'),
+    path.join(process.cwd(), 'installer-dist', 'win-unpacked', 'resources', 'backend'),
+    path.join(app.getAppPath(), '..', 'backend'),
+    path.join(app.getAppPath(), '..', '..', 'backend-dist')
   ].filter(Boolean);
 
-  for (const p of possiblePaths) {
-    try {
-      const resolved = path.resolve(p);
-      if (fs.existsSync(resolved)) {
-        return resolved;
-      }
-    } catch {}
+  for (const dir of baseDirs) {
+    for (const bin of binaryNames) {
+      try {
+        const resolved = path.resolve(path.join(dir, bin));
+        if (fs.existsSync(resolved)) {
+          return resolved;
+        }
+      } catch {}
+    }
   }
   return null;
 }
@@ -270,7 +273,7 @@ function launchBackend() {
 
   const exePath = findBackendExecutable();
   if (!exePath) {
-    lastBackendError = 'AnyDeskClone.Backend.exe not found on disk';
+    lastBackendError = 'Backend executable not found on disk';
     console.error('[Launcher]', lastBackendError);
     return { success: false, error: lastBackendError };
   }
@@ -393,7 +396,7 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: '#0c0e14',
     frame: true,
-    title: 'AnyDesk - Remote Desktop',
+    title: 'Screen Share 1 - Remote Desktop',
     icon: appIcon || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -1133,7 +1136,7 @@ ipcMain.on('system:simulate-input', (event, input) => {
 
 app.whenReady().then(async () => {
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.anydeskclone.app');
+    app.setAppUserModelId('com.screenshare1.app');
   }
 
   if (process.platform === 'darwin') {
@@ -1232,8 +1235,8 @@ app.whenReady().then(async () => {
 
   // Initial subnet sweep after 1.5 seconds, then every 10 seconds
   setTimeout(() => {
-    scanSubnetForAnyDesk();
-    lanScanTimer = setInterval(scanSubnetForAnyDesk, 10000);
+    scanSubnetForScreenShare1();
+    lanScanTimer = setInterval(scanSubnetForScreenShare1, 10000);
   }, 1500);
 
   app.on('activate', () => {

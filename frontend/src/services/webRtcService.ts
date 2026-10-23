@@ -204,8 +204,8 @@ export class WebRtcService {
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(16, canvas.height - 36, 24, 24);
 
-      // AnyDesk red orb in center
-      ctx.fillStyle = 'rgba(243, 34, 58, 0.2)';
+      // Screen Share 1 light blue orb in center
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
       ctx.beginPath();
       ctx.arc(canvas.width / 2, canvas.height / 2 - 20, 140, 0, Math.PI * 2);
       ctx.fill();
@@ -214,7 +214,7 @@ export class WebRtcService {
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 32px "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('AnyDesk LAN Remote Desktop', canvas.width / 2, canvas.height / 2 - 40);
+      ctx.fillText('Screen Share 1 LAN Remote Desktop', canvas.width / 2, canvas.height / 2 - 40);
 
       // Subtitle
       ctx.fillStyle = '#38bdf8';

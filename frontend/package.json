@@ -1,9 +1,9 @@
 {
-  "name": "anydesk-clone",
+  "name": "screen-share-1",
   "private": true,
   "version": "1.0.0",
-  "description": "AnyDesk Clone - Fast, secure Windows Remote Desktop Application",
-  "author": "AnyDesk Clone Team",
+  "description": "Screen Share 1 - Fast, secure Remote Desktop & Screen Sharing Application",
+  "author": "Screen Share 1 Team",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -18,9 +18,9 @@
     "package:dir": "npm run build && electron-builder --dir"
   },
   "build": {
-    "appId": "com.anydeskclone.app",
-    "productName": "AnyDesk Clone",
-    "executableName": "AnyDesk Clone",
+    "appId": "com.screenshare1.app",
+    "productName": "Screen Share 1",
+    "executableName": "Screen Share 1",
     "directories": {
       "output": "../installer-dist"
     },
@@ -44,10 +44,10 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSScreenCaptureUsageDescription": "AnyDesk Clone requires screen recording permission to stream your desktop display to remote connected devices.",
-        "NSCameraUsageDescription": "AnyDesk Clone requires camera access for remote sessions.",
-        "NSMicrophoneUsageDescription": "AnyDesk Clone requires microphone access for audio during remote sessions.",
-        "NSAccessibilityUsageDescription": "AnyDesk Clone requires accessibility permission to allow remote control of mouse and keyboard."
+        "NSScreenCaptureUsageDescription": "Screen Share 1 requires screen recording permission to stream your desktop display to remote connected devices.",
+        "NSCameraUsageDescription": "Screen Share 1 requires camera access for remote sessions.",
+        "NSMicrophoneUsageDescription": "Screen Share 1 requires microphone access for audio during remote sessions.",
+        "NSAccessibilityUsageDescription": "Screen Share 1 requires accessibility permission to allow remote control of mouse and keyboard."
       },
       "target": [
         {
@@ -67,7 +67,7 @@
       ]
     },
     "dmg": {
-      "title": "AnyDesk Clone",
+      "title": "Screen Share 1",
       "contents": [
         {
           "x": 130,
@@ -79,6 +79,14 @@
           "type": "link",
           "path": "/Applications"
         }
+      ]
+    },
+    "linux": {
+      "icon": "public/icon-512.png",
+      "category": "Utility",
+      "target": [
+        "AppImage",
+        "deb"
       ]
     },
     "win": {
@@ -103,7 +111,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AnyDesk Clone"
+      "shortcutName": "Screen Share 1"
     }
   },
   "dependencies": {

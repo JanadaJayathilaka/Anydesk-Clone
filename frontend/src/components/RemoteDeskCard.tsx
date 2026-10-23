@@ -206,7 +206,7 @@ export const RemoteDeskCard: React.FC<RemoteDeskCardProps> = ({
 
         {lanDevices.length === 0 ? (
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>
-            Scanning local network for other AnyDesk PCs... Click <strong>Scan LAN</strong> to refresh.
+            Scanning local network for other Screen Share 1 PCs... Click <strong>Scan LAN</strong> to refresh.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
